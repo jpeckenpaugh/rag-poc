@@ -104,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <MessageSquare className="w-3.5 h-3.5" />
-              <span>Assistant & Chat</span>
+              <span>Chat</span>
             </button>
 
             <button
@@ -116,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>PDF Documents</span>
+              <span>PDFs</span>
             </button>
 
             <button

@@ -28,6 +28,7 @@ export const EvaluationQueryBar: React.FC<EvaluationQueryBarProps> = ({
     if (!queryId) return;
     const found = evaluationQueries.find((q) => q.id === queryId);
     if (found) {
+      setShowDetails(true);
       onSelectQuery(found, true);
     }
   };
