@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Header } from './components/Header';
+import { Header, AppViewMode } from './components/Header';
 import { EvaluationQueryBar } from './components/EvaluationQueryBar';
 import { ChatInterface, ChatMessage } from './components/ChatInterface';
 import { DevToolsDrawer } from './components/DevToolsDrawer';
 import { ChunkModal } from './components/ChunkModal';
+import { PDFViewer } from './components/PDFViewer';
 
 // Engines & Data
 import { checkWebGPUSupport, GPUSupportResult } from './engine/gpuCheck';
@@ -22,6 +23,9 @@ import { EvaluationQuery } from './data/evaluationQueries';
 import { CorpusDocument, ChunkRecord } from './types/corpus';
 
 export const App: React.FC = () => {
+  // Navigation / View State: 'chat' | 'documents' | 'devtools'
+  const [currentView, setCurrentView] = useState<AppViewMode>('chat');
+
   // Vector store singleton in component state
   const vectorStore = useMemo(() => new InMemoryVectorStore(), []);
 
@@ -50,12 +54,16 @@ export const App: React.FC = () => {
   const [llmState, setLlmState] = useState<WebLLMClientState>(webLLM.getState());
 
   // DevTools & Inspectability state
-  const [isDevToolsOpen, setIsDevToolsOpen] = useState<boolean>(true);
   const [devToolsTab, setDevToolsTab] = useState<'chunks' | 'search' | 'prompt' | 'diagnostics'>('chunks');
   const [allChunks, setAllChunks] = useState<ChunkRecord[]>([]);
   const [latestSearchResults, setLatestSearchResults] = useState<RetrievedChunkMatch[]>([]);
   const [queryVectorSample, setQueryVectorSample] = useState<number[] | null>(null);
   const [assembledPrompt, setAssembledPrompt] = useState<AssembledPrompt | null>(null);
+
+  // PDF Viewer Focus State
+  const [selectedPdfDocId, setSelectedPdfDocId] = useState<string>('NU-OPS-001');
+  const [targetPdfPage, setTargetPdfPage] = useState<number>(1);
+  const [highlightPdfChunkId, setHighlightPdfChunkId] = useState<string | undefined>(undefined);
 
   // Modal inspection state
   const [inspectedChunk, setInspectedChunk] = useState<{ chunk: ChunkRecord; score?: number } | null>(null);
@@ -95,106 +103,117 @@ export const App: React.FC = () => {
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}corpus/manifest.json`)
       .then((res) => res.json())
-      .then((data: CorpusDocument[]) => setManifest(data))
+      .then((data: CorpusDocument[]) => {
+        setManifest(data);
+        if (data.length > 0) {
+          setSelectedPdfDocId(data[0].id);
+        }
+      })
       .catch((err) => console.error('Failed to load corpus manifest:', err));
 
     const meta = getCacheMetadata();
     if (meta && meta.chunkCount > 0) {
       setHasCachedCorpus(true);
       // Auto-restore cached chunks immediately on mount
-      loadChunksFromCache().then((cachedChunks) => {
-        if (cachedChunks && cachedChunks.length > 0) {
-          vectorStore.setChunks(cachedChunks);
-          setStoreStats(vectorStore.getStats());
-          setAllChunks(vectorStore.getChunks());
-          setCorpusLoadStage(`Restored ${cachedChunks.length} chunks from browser cache`);
-        }
-      }).catch((e) => console.warn('Could not auto-restore cached chunks:', e));
+      loadChunksFromCache()
+        .then((cachedChunks) => {
+          if (cachedChunks && cachedChunks.length > 0) {
+            vectorStore.setChunks(cachedChunks);
+            setStoreStats(vectorStore.getStats());
+            setAllChunks(vectorStore.getChunks());
+            setCorpusLoadStage(`Restored ${cachedChunks.length} chunks from browser cache`);
+          }
+        })
+        .catch((e) => console.warn('Could not auto-restore cached chunks:', e));
     }
   }, [vectorStore]);
 
   // Handler: Ingest Northstar 21 PDF Corpus (Supports cache restore vs force regenerate)
-  const handleLoadCorpus = useCallback(async (forceRegenerate = false) => {
-    if (isCorpusLoading) return;
-    setIsCorpusLoading(true);
+  const handleLoadCorpus = useCallback(
+    async (forceRegenerate = false) => {
+      if (isCorpusLoading) return;
+      setIsCorpusLoading(true);
 
-    try {
-      // If not forcing regenerate, try loading from browser cache first
-      if (!forceRegenerate) {
-        setCorpusLoadStage('Checking local IndexedDB cache for embeddings...');
-        const cached = await loadChunksFromCache();
-        if (cached && cached.length > 0) {
-          vectorStore.setChunks(cached);
-          const stats = vectorStore.getStats();
-          setStoreStats(stats);
-          setAllChunks(vectorStore.getChunks());
-          setHasCachedCorpus(true);
-          setCorpusLoadStage(`Restored ${cached.length} chunks from browser cache in <50ms.`);
-          setTimeout(() => setIsCorpusLoading(false), 500);
-          return;
+      try {
+        // If not forcing regenerate, try loading from browser cache first
+        if (!forceRegenerate) {
+          setCorpusLoadStage('Checking local IndexedDB cache for embeddings...');
+          const cached = await loadChunksFromCache();
+          if (cached && cached.length > 0) {
+            vectorStore.setChunks(cached);
+            const stats = vectorStore.getStats();
+            setStoreStats(stats);
+            setAllChunks(vectorStore.getChunks());
+            setHasCachedCorpus(true);
+            setCorpusLoadStage(`Restored ${cached.length} chunks from browser cache in <50ms.`);
+            setTimeout(() => setIsCorpusLoading(false), 500);
+            return;
+          }
         }
+
+        // 1. Fetch manifest if empty
+        let docsToLoad = manifest;
+        if (!docsToLoad || docsToLoad.length === 0) {
+          setCorpusLoadStage('Fetching document manifest...');
+          const res = await fetch(`${import.meta.env.BASE_URL}corpus/manifest.json`);
+          docsToLoad = await res.json();
+          setManifest(docsToLoad);
+        }
+
+        const totalDocs = docsToLoad.length;
+        setCorpusLoadStage(`Starting ingestion of ${totalDocs} operational documents...`);
+        setCorpusProgress({ current: 0, total: totalDocs });
+
+        // 2. Download and Extract PDFs
+        const extractedDocs = [];
+        for (let i = 0; i < totalDocs; i++) {
+          const docMeta = docsToLoad[i];
+          setCorpusLoadStage(`Extracting PDF (${i + 1}/${totalDocs}): ${docMeta.filename}...`);
+          setCorpusProgress({ current: i + 1, total: totalDocs });
+
+          const url = `${import.meta.env.BASE_URL}corpus/${docMeta.filename}`;
+          const extracted = await extractTextFromUrl(url, docMeta);
+          extractedDocs.push(extracted);
+        }
+
+        // 3. Sliding-window chunking
+        setCorpusLoadStage(`Chunking ${extractedDocs.length} extracted documents...`);
+        const rawChunks = chunkDocuments(extractedDocs, {
+          windowSize: 500,
+          overlap: 100,
+          minThreshold: 60,
+        });
+
+        // 4. Vectorize chunks with in-browser MiniLM-L6-v2 ONNX
+        setCorpusLoadStage(`Vectorizing ${rawChunks.length} chunks via all-MiniLM-L6-v2...`);
+        setCorpusProgress({ current: 0, total: rawChunks.length });
+
+        const embeddedChunks = await embedChunks(rawChunks, ({ current, total }) => {
+          setCorpusProgress({ current, total });
+          setCorpusLoadStage(`Vectorizing chunks (${current}/${total})...`);
+        });
+
+        // 5. Store chunks in in-memory vector store
+        vectorStore.setChunks(embeddedChunks);
+        const stats = vectorStore.getStats();
+        setStoreStats(stats);
+        setAllChunks(vectorStore.getChunks());
+
+        // 6. Cache into browser IndexedDB for fast reload
+        setCorpusLoadStage('Saving embeddings to browser cache (IndexedDB)...');
+        await saveChunksToCache(embeddedChunks);
+        setHasCachedCorpus(true);
+
+        setCorpusLoadStage(`Ready! Ingested & cached ${embeddedChunks.length} chunks across ${totalDocs} documents.`);
+        setTimeout(() => setIsCorpusLoading(false), 800);
+      } catch (err) {
+        console.error('Error during corpus ingestion:', err);
+        setCorpusLoadStage(`Ingestion failed: ${err instanceof Error ? err.message : String(err)}`);
+        setIsCorpusLoading(false);
       }
-
-      // 1. Fetch manifest if empty
-      let docsToLoad = manifest;
-      if (!docsToLoad || docsToLoad.length === 0) {
-        setCorpusLoadStage('Fetching document manifest...');
-        const res = await fetch(`${import.meta.env.BASE_URL}corpus/manifest.json`);
-        docsToLoad = await res.json();
-        setManifest(docsToLoad);
-      }
-
-      const totalDocs = docsToLoad.length;
-      setCorpusProgress({ current: 0, total: totalDocs });
-
-      // 2. Download and Extract PDFs
-      const extractedDocs = [];
-      for (let i = 0; i < totalDocs; i++) {
-        const docMeta = docsToLoad[i];
-        setCorpusLoadStage(`Extracting PDF (${i + 1}/${totalDocs}): ${docMeta.filename}...`);
-        setCorpusProgress({ current: i + 1, total: totalDocs });
-
-        const url = `${import.meta.env.BASE_URL}corpus/${docMeta.filename}`;
-        const extracted = await extractTextFromUrl(url, docMeta);
-        extractedDocs.push(extracted);
-      }
-
-      // 3. Sliding-window chunking
-      setCorpusLoadStage(`Chunking ${extractedDocs.length} extracted documents...`);
-      const rawChunks = chunkDocuments(extractedDocs, {
-        windowSize: 500,
-        overlap: 100,
-        minThreshold: 60,
-      });
-
-      // 4. Vectorize chunks with in-browser MiniLM-L6-v2 ONNX
-      setCorpusLoadStage(`Vectorizing ${rawChunks.length} chunks via all-MiniLM-L6-v2...`);
-      setCorpusProgress({ current: 0, total: rawChunks.length });
-
-      const embeddedChunks = await embedChunks(rawChunks, ({ current, total }) => {
-        setCorpusProgress({ current, total });
-        setCorpusLoadStage(`Vectorizing chunks (${current}/${total})...`);
-      });
-
-      // 5. Store chunks in in-memory vector store
-      vectorStore.setChunks(embeddedChunks);
-      const stats = vectorStore.getStats();
-      setStoreStats(stats);
-      setAllChunks(vectorStore.getChunks());
-
-      // 6. Cache into browser IndexedDB for fast reload
-      setCorpusLoadStage('Saving embeddings to browser cache (IndexedDB)...');
-      await saveChunksToCache(embeddedChunks);
-      setHasCachedCorpus(true);
-
-      setCorpusLoadStage(`Ready! Ingested & cached ${embeddedChunks.length} chunks across ${totalDocs} documents.`);
-      setTimeout(() => setIsCorpusLoading(false), 800);
-    } catch (err) {
-      console.error('Error during corpus ingestion:', err);
-      setCorpusLoadStage(`Ingestion failed: ${err instanceof Error ? err.message : String(err)}`);
-      setIsCorpusLoading(false);
-    }
-  }, [isCorpusLoading, manifest, vectorStore]);
+    },
+    [isCorpusLoading, manifest, vectorStore]
+  );
 
   // Handler: Upload custom PDF
   const handleUploadCustomFile = useCallback(
@@ -261,6 +280,9 @@ export const App: React.FC = () => {
       const userMsgId = `user-${Date.now()}`;
       const assistantMsgId = `assistant-${Date.now()}`;
 
+      // Switch to chat view if in another view
+      setCurrentView('chat');
+
       // Append user message immediately
       setMessages((prev) => [
         ...prev,
@@ -276,14 +298,13 @@ export const App: React.FC = () => {
 
       // Check if vector store has chunks
       if (vectorStore.count() === 0) {
-        // Automatically prompt to load corpus or notify user
         setMessages((prev) => [
           ...prev,
           {
             id: assistantMsgId,
             sender: 'assistant',
             text:
-              '⚠️ The Northstar in-memory corpus is not yet loaded. Please click "Load Northstar Corpus" in the top bar to ingest and vectorize the 21 PDFs.',
+              '⚠️ The Northstar in-memory corpus is not yet loaded. Please click "Load Corpus" in the top bar to ingest and vectorize the 21 PDFs.',
             timestamp: Date.now(),
             citations: [],
           },
@@ -300,12 +321,10 @@ export const App: React.FC = () => {
         // Step 2: Dot-product linear scan search (Top-5, threshold 0.05 for candidate discovery)
         const rankedMatches = vectorStore.search(queryVector, 5, 0.05);
         setLatestSearchResults(rankedMatches);
-        console.log(`[RAG Search] Query: "${queryText}" | Top matches:`, rankedMatches);
 
         // Step 3: Assemble strict anti-hallucination prompt
         const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.05 });
         setAssembledPrompt(assembled);
-        console.log('[RAG Prompt] Assembled context chunks:', assembled.includedChunks.length, 'hasRelevantContext:', assembled.hasRelevantContext);
 
         // Add assistant placeholder with streaming flag
         setMessages((prev) => [
@@ -336,7 +355,6 @@ export const App: React.FC = () => {
           },
           0.05
         );
-        console.log('[RAG Result] Output mode:', result.mode, 'result text:', result.text);
 
         // Finalize assistant message
         setMessages((prev) =>
@@ -372,9 +390,20 @@ export const App: React.FC = () => {
     [isGenerating, vectorStore, webLLM]
   );
 
+  // Jump from citation click directly to PDF Document Viewer
+  const handleOpenInPDFViewer = useCallback(
+    (docId: string, page: number, chunkId: string) => {
+      setSelectedPdfDocId(docId);
+      setTargetPdfPage(page);
+      setHighlightPdfChunkId(chunkId);
+      setCurrentView('documents');
+    },
+    []
+  );
+
   // Handler: Select query from evaluation chips
   const handleSelectEvaluationQuery = useCallback(
-    (query: EvaluationQuery, autoRun = false) => {
+    (query: EvaluationQuery, autoRun = true) => {
       setSelectedEvaluationQueryId(query.id);
       if (autoRun) {
         handleExecuteQuery(query.query);
@@ -385,8 +414,10 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
-      {/* 1. Global Header with WebGPU status, In-Memory stats, and Actions */}
+      {/* 1. Global Header with View Switcher, Stats, and Actions */}
       <Header
+        currentView={currentView}
+        onViewChange={setCurrentView}
         gpuStatus={gpuStatus}
         checkingGPU={checkingGPU}
         storeStats={storeStats}
@@ -398,78 +429,84 @@ export const App: React.FC = () => {
         onLoadCorpus={handleLoadCorpus}
         onUploadCustomFile={handleUploadCustomFile}
         onInitializeLLM={handleInitializeLLM}
-        onOpenDevTools={(tab) => {
-          if (tab) setDevToolsTab(tab as 'chunks' | 'search' | 'prompt' | 'diagnostics');
-          setIsDevToolsOpen(true);
-        }}
       />
 
-      {/* Main Workspace */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col">
-        {/* 2. Quick Evaluation Benchmark Query Bar */}
-        <EvaluationQueryBar
-          selectedQueryId={selectedEvaluationQueryId}
-          onSelectQuery={handleSelectEvaluationQuery}
-        />
+      {/* Main Workspace based on current view */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col">
+        {/* VIEW 1: ASSISTANT & CHAT */}
+        {currentView === 'chat' && (
+          <div className="flex-1 flex flex-col space-y-4">
+            {/* Quick Evaluation Query Bar */}
+            <EvaluationQueryBar
+              selectedQueryId={selectedEvaluationQueryId}
+              onSelectQuery={handleSelectEvaluationQuery}
+            />
 
-        {/* 3. Chat and DevTools Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-[640px]">
-          {/* Left / Main: Chat Interface */}
-          <div
-            className={`transition-all duration-300 flex flex-col ${
-              isDevToolsOpen ? 'lg:col-span-7' : 'lg:col-span-12'
-            }`}
-          >
-            <ChatInterface
-              messages={messages}
-              isGenerating={isGenerating}
-              onSendMessage={handleExecuteQuery}
-              onInspectCitation={(chunk, score) => setInspectedChunk({ chunk, score })}
-              onOpenDevTools={(tab) => {
-                if (tab) setDevToolsTab(tab as 'chunks' | 'search' | 'prompt' | 'diagnostics');
-                setIsDevToolsOpen(true);
+            {/* Chat Interface Container */}
+            <div className="flex-1 min-h-[620px] flex flex-col">
+              <ChatInterface
+                messages={messages}
+                isGenerating={isGenerating}
+                onSendMessage={handleExecuteQuery}
+                onInspectCitation={(chunk, score) => setInspectedChunk({ chunk, score })}
+                onOpenDevTools={(tab) => {
+                  if (tab) setDevToolsTab(tab as 'chunks' | 'search' | 'prompt' | 'diagnostics');
+                  setCurrentView('devtools');
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* VIEW 2: PDF DOCUMENTS & VISUAL CHUNKS VIEWER */}
+        {currentView === 'documents' && (
+          <div className="flex-1 flex flex-col">
+            <PDFViewer
+              documents={manifest}
+              allChunks={allChunks}
+              selectedDocId={selectedPdfDocId}
+              targetPage={targetPdfPage}
+              highlightChunkId={highlightPdfChunkId}
+              onSelectDocument={(docId) => setSelectedPdfDocId(docId)}
+              onAskAboutChunk={(chunk) => {
+                let clean = chunk.text.trim();
+                const prefixMatch = clean.match(/^\[Document:[^\]]+\]\s*/);
+                if (prefixMatch) clean = clean.slice(prefixMatch[0].length);
+                const queryText = `According to ${chunk.docId} page ${chunk.page}, what is stated regarding: "${clean.slice(0, 120)}..."?`;
+                handleExecuteQuery(queryText);
               }}
             />
           </div>
+        )}
 
-          {/* Right: DevTools Inspectability Drawer (The Pedagogical Core) */}
-          {isDevToolsOpen && (
-            <div className="lg:col-span-5 h-[640px] lg:h-auto rounded-2xl overflow-hidden border border-slate-800 shadow-xl flex flex-col">
-              <DevToolsDrawer
-                isOpen={isDevToolsOpen}
-                activeTab={devToolsTab}
-                onTabChange={setDevToolsTab}
-                onClose={() => setIsDevToolsOpen(false)}
-                allChunks={allChunks}
-                latestSearchResults={latestSearchResults}
-                queryVectorSample={queryVectorSample}
-                assembledPrompt={assembledPrompt}
-                gpuStatus={gpuStatus}
-                storeStats={storeStats}
-                llmState={llmState}
-                onInspectChunk={(chunk, score) => setInspectedChunk({ chunk, score })}
-              />
-            </div>
-          )}
-        </div>
+        {/* VIEW 3: DEVTOOLS & INSPECTOR */}
+        {currentView === 'devtools' && (
+          <div className="flex-1 h-[720px] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex flex-col">
+            <DevToolsDrawer
+              isOpen={true}
+              activeTab={devToolsTab}
+              onTabChange={setDevToolsTab}
+              onClose={() => setCurrentView('chat')}
+              allChunks={allChunks}
+              latestSearchResults={latestSearchResults}
+              queryVectorSample={queryVectorSample}
+              assembledPrompt={assembledPrompt}
+              gpuStatus={gpuStatus}
+              storeStats={storeStats}
+              llmState={llmState}
+              onInspectChunk={(chunk, score) => setInspectedChunk({ chunk, score })}
+            />
+          </div>
+        )}
       </main>
 
-      {/* Floating Re-open DevTools Button when closed */}
-      {!isDevToolsOpen && (
-        <button
-          onClick={() => setIsDevToolsOpen(true)}
-          className="fixed bottom-6 right-6 z-40 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-4 py-2.5 rounded-full shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition hover:scale-105"
-        >
-          <span>Open RAG DevTools</span>
-        </button>
-      )}
-
-      {/* Chunk Modal for Full Inspectability */}
+      {/* Chunk Modal for Full Inspectability with direct link to PDF Viewer */}
       <ChunkModal
         isOpen={Boolean(inspectedChunk)}
         chunk={inspectedChunk?.chunk ?? null}
         score={inspectedChunk?.score}
         onClose={() => setInspectedChunk(null)}
+        onOpenInPDFViewer={handleOpenInPDFViewer}
       />
     </div>
   );

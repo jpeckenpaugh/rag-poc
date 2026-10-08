@@ -7,12 +7,19 @@ import {
   CheckCircle,
   RefreshCw,
   Upload,
+  MessageSquare,
+  FileText,
+  Terminal,
 } from 'lucide-react';
 import type { GPUSupportResult } from '../engine/gpuCheck';
 import type { VectorStoreStats } from '../engine/vectorStore';
 import type { InitProgressReport } from '@mlc-ai/web-llm';
 
+export type AppViewMode = 'chat' | 'documents' | 'devtools';
+
 export interface HeaderProps {
+  currentView: AppViewMode;
+  onViewChange: (view: AppViewMode) => void;
   gpuStatus: GPUSupportResult | null;
   checkingGPU: boolean;
   storeStats: VectorStoreStats;
@@ -30,7 +37,6 @@ export interface HeaderProps {
   onLoadCorpus: (forceRegenerate?: boolean) => void;
   onUploadCustomFile: (file: File) => void;
   onInitializeLLM: () => void;
-  onOpenDevTools: (tab?: string) => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -42,6 +48,8 @@ function formatBytes(bytes: number): string {
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  currentView,
+  onViewChange,
   gpuStatus,
   checkingGPU,
   storeStats,
@@ -53,7 +61,6 @@ export const Header: React.FC<HeaderProps> = ({
   onLoadCorpus,
   onUploadCustomFile,
   onInitializeLLM,
-  onOpenDevTools,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -66,102 +73,137 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 py-3 sm:px-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* Title and Branding */}
+    <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-30 shadow-md">
+      <div className="max-w-7xl mx-auto px-4 py-2.5 sm:px-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          {/* 1. Title and Branding */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-black text-xl">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-black text-lg">
               N
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                  Northstar In-Browser RAG
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                  Northstar RAG
                 </h1>
-                <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800/80">
-                  Zero-Backend
+                <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800/80">
+                  Client-Side
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
-                100% Client-Side In-Memory MiniLM-L6-v2 + WebGPU Llama-3.2
+              <p className="text-[11px] text-slate-400 hidden sm:block">
+                In-Memory ONNX MiniLM-L6-v2 · WebGPU Llama-3.2
               </p>
             </div>
           </div>
 
-          {/* Status Badges & Controls */}
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* WebGPU Status Badge */}
+          {/* 2. Primary Navigation Tabs (View Switcher) */}
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner self-start md:self-center">
             <button
-              onClick={() => onOpenDevTools('diagnostics')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer ${
+              onClick={() => onViewChange('chat')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                currentView === 'chat'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Assistant & Chat</span>
+            </button>
+
+            <button
+              onClick={() => onViewChange('documents')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                currentView === 'documents'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>PDF Documents & Chunks</span>
+            </button>
+
+            <button
+              onClick={() => onViewChange('devtools')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                currentView === 'devtools'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>DevTools Inspector</span>
+            </button>
+          </div>
+
+          {/* 3. Essential Status & Corpus Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* WebGPU Status Pill */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium ${
                 checkingGPU
                   ? 'bg-slate-800 text-slate-300 border-slate-700'
                   : gpuStatus?.supported
-                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800 hover:bg-emerald-900/40'
-                  : 'bg-amber-950/60 text-amber-300 border-amber-800 hover:bg-amber-900/40'
+                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
+                  : 'bg-amber-950/60 text-amber-300 border-amber-800'
               }`}
               title={
                 gpuStatus?.supported
                   ? `WebGPU Active: ${gpuStatus.adapterName || 'Hardware Accelerated'}`
-                  : `WebGPU Fallback Mode: ${gpuStatus?.reason || 'CPU Vector Only'}`
+                  : `CPU Vector Only: ${gpuStatus?.reason || 'No WebGPU'}`
               }
             >
-              <Cpu className="w-3.5 h-3.5" />
-              <span>
+              <Cpu className="w-3 h-3" />
+              <span className="hidden sm:inline">
                 {checkingGPU
                   ? 'Checking GPU...'
                   : gpuStatus?.supported
                   ? 'WebGPU Active'
-                  : 'Retrieval Only (CPU)'}
+                  : 'CPU Retrieval'}
               </span>
-            </button>
+            </div>
 
-            {/* In-Memory Corpus Status */}
-            <button
-              onClick={() => onOpenDevTools('chunks')}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-xs font-medium text-slate-200 transition"
-              title="Click to view all chunks in DevTools"
+            {/* In-Memory Heap Counter */}
+            <div
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-[11px] font-medium text-slate-300"
+              title="Current in-memory chunks and estimated JS heap footprint"
             >
-              <Layers className="w-3.5 h-3.5 text-indigo-400" />
-              <span>
-                {storeStats.chunkCount > 0
-                  ? `${storeStats.documentsIndexed} docs · ${storeStats.chunkCount} chunks`
-                  : 'No chunks loaded'}
-              </span>
-              <span className="text-[10px] text-slate-400 font-mono bg-slate-900 px-1.5 py-0.5 rounded border border-slate-750">
-                {formatBytes(storeStats.estimatedMemoryBytes)}
-              </span>
-            </button>
+              <Layers className="w-3 h-3 text-indigo-400" />
+              <span>{storeStats.chunkCount} chunks</span>
+              {storeStats.estimatedMemoryBytes > 0 && (
+                <span className="text-[10px] text-slate-400 font-mono">
+                  ({formatBytes(storeStats.estimatedMemoryBytes)})
+                </span>
+              )}
+            </div>
 
-            {/* Load Northstar Corpus / Cache Controls */}
+            {/* Load / Cache Action Button */}
             {storeStats.chunkCount === 0 ? (
               hasCachedCorpus ? (
                 <div className="flex items-center rounded-lg border border-indigo-700 bg-indigo-950/70 p-0.5 shadow">
                   <button
                     onClick={() => onLoadCorpus(false)}
                     disabled={isCorpusLoading}
-                    className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition shadow cursor-pointer"
-                    title="Instantly restore indexed embeddings from browser IndexedDB cache"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition shadow cursor-pointer"
+                    title="Instantly restore indexed embeddings from browser cache"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Load from Cache</span>
+                    <Download className="w-3 h-3" />
+                    <span>Load Cache</span>
                   </button>
                   <button
                     onClick={() => onLoadCorpus(true)}
                     disabled={isCorpusLoading}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-indigo-300 hover:text-white hover:bg-indigo-800/60 transition cursor-pointer"
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-indigo-300 hover:text-white hover:bg-indigo-800/60 transition cursor-pointer"
                     title="Re-extract and re-embed all 21 PDFs from scratch"
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Regenerate</span>
+                    <RefreshCw className="w-2.5 h-2.5" />
+                    <span>Rebuild</span>
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => onLoadCorpus(false)}
                   disabled={isCorpusLoading}
-                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow transition cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold shadow transition cursor-pointer ${
                     isCorpusLoading
                       ? 'bg-indigo-900/50 text-indigo-300 border border-indigo-700 cursor-wait'
                       : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
@@ -170,18 +212,22 @@ export const Header: React.FC<HeaderProps> = ({
                   <Download
                     className={`w-3.5 h-3.5 ${isCorpusLoading ? 'animate-bounce text-indigo-400' : ''}`}
                   />
-                  <span>{isCorpusLoading ? 'Indexing Corpus...' : 'Load Northstar Corpus'}</span>
+                  <span>{isCorpusLoading ? 'Indexing...' : 'Load Corpus'}</span>
                 </button>
               )
             ) : (
               <button
                 onClick={() => onLoadCorpus(true)}
                 disabled={isCorpusLoading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-medium transition cursor-pointer"
                 title="Re-extract and re-embed all 21 PDFs from scratch"
               >
-                <RefreshCw className={`w-3 h-3 text-slate-400 ${isCorpusLoading ? 'animate-spin text-indigo-400' : ''}`} />
-                <span>{isCorpusLoading ? 'Regenerating...' : 'Regenerate Corpus'}</span>
+                <RefreshCw
+                  className={`w-3 h-3 text-slate-400 ${
+                    isCorpusLoading ? 'animate-spin text-indigo-400' : ''
+                  }`}
+                />
+                <span>Rebuild</span>
               </button>
             )}
 
@@ -195,39 +241,38 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-700/70 border border-slate-700 text-xs font-medium text-slate-300 transition"
-              title="Drop or upload a custom PDF into in-memory store"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
+              title="Add custom PDF to store"
             >
               <Upload className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Add PDF</span>
             </button>
 
-            {/* WebLLM Engine Status / Pre-download trigger */}
+            {/* WebLLM Warmup Trigger */}
             {gpuStatus?.supported && (
               <button
                 onClick={onInitializeLLM}
                 disabled={llmState.isInitializing || llmState.isReady}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition ${
                   llmState.isReady
                     ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800'
                     : llmState.isInitializing
                     ? 'bg-cyan-950/50 text-cyan-300 border-cyan-800 cursor-wait'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-600'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-600 cursor-pointer'
                 }`}
                 title="Initialize WebGPU Llama-3.2 local model weights"
               >
                 {llmState.isReady ? (
-                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  <CheckCircle className="w-3 h-3 text-emerald-400" />
                 ) : llmState.isInitializing ? (
-                  <RefreshCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                  <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />
                 ) : (
-                  <HardDrive className="w-3.5 h-3.5 text-slate-400" />
+                  <HardDrive className="w-3 h-3 text-slate-400" />
                 )}
                 <span>
                   {llmState.isReady
                     ? 'Llama-3.2 Ready'
                     : llmState.isInitializing
-                    ? 'Downloading Weights...'
+                    ? 'Downloading...'
                     : 'Warmup LLM'}
                 </span>
               </button>
@@ -235,25 +280,25 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Real-time Ingestion / Loading Progress Bar */}
+        {/* Real-time Ingestion Progress Bar */}
         {isCorpusLoading && (
-          <div className="mt-3 pt-3 border-t border-slate-800/80 animate-fadeIn">
-            <div className="flex items-center justify-between text-xs mb-1.5">
-              <span className="text-slate-300 font-medium flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
+          <div className="mt-2 pt-2 border-t border-slate-800/80 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs mb-1">
+              <span className="text-slate-300 font-medium flex items-center gap-1.5 truncate">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
                 {corpusLoadStage || 'Processing documents...'}
               </span>
-              <span className="font-mono text-indigo-400 text-xs">
+              <span className="font-mono text-indigo-400 text-xs shrink-0">
                 {corpusProgress.total > 0
                   ? `${corpusProgress.current} / ${corpusProgress.total} (${Math.round(
                       (corpusProgress.current / corpusProgress.total) * 100
                     )}%)`
-                  : 'Preparing pipeline...'}
+                  : 'Preparing...'}
               </span>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700/60">
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
               <div
-                className="bg-gradient-to-r from-indigo-500 via-indigo-400 to-cyan-400 h-2 rounded-full transition-all duration-300"
+                className="bg-gradient-to-r from-indigo-500 to-cyan-400 h-1.5 rounded-full transition-all duration-300"
                 style={{
                   width: `${
                     corpusProgress.total > 0
@@ -266,21 +311,21 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         )}
 
-        {/* WebLLM Weights Download Progress Bar */}
+        {/* WebLLM Download Progress Bar */}
         {llmState.isInitializing && llmState.progressReport && (
-          <div className="mt-3 pt-3 border-t border-slate-800/80 animate-fadeIn">
-            <div className="flex items-center justify-between text-xs mb-1.5">
+          <div className="mt-2 pt-2 border-t border-slate-800/80 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs mb-1">
               <span className="text-cyan-300 font-medium flex items-center gap-1.5 truncate max-w-xl">
-                <Download className="w-3.5 h-3.5 text-cyan-400 animate-bounce" />
-                {llmState.progressReport.text || 'Fetching model cache...'}
+                <Download className="w-3 h-3 text-cyan-400 animate-bounce" />
+                {llmState.progressReport.text || 'Fetching model weights...'}
               </span>
-              <span className="font-mono text-cyan-400 text-xs">
+              <span className="font-mono text-cyan-400 text-xs shrink-0">
                 {Math.round((llmState.progressReport.progress || 0) * 100)}%
               </span>
             </div>
-            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-slate-700/60">
+            <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
               <div
-                className="bg-cyan-500 h-1.5 rounded-full transition-all duration-200"
+                className="bg-cyan-500 h-1.5 rounded-full transition-all duration-300"
                 style={{
                   width: `${Math.round((llmState.progressReport.progress || 0) * 100)}%`,
                 }}

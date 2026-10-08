@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, FileText, Bookmark, Hash } from 'lucide-react';
+import { X, FileText, Bookmark, Hash, ExternalLink } from 'lucide-react';
 import type { ChunkRecord } from '../types/corpus';
 
 export interface ChunkModalProps {
@@ -7,6 +7,7 @@ export interface ChunkModalProps {
   score?: number;
   isOpen: boolean;
   onClose: () => void;
+  onOpenInPDFViewer?: (docId: string, page: number, chunkId: string) => void;
 }
 
 export const ChunkModal: React.FC<ChunkModalProps> = ({
@@ -14,6 +15,7 @@ export const ChunkModal: React.FC<ChunkModalProps> = ({
   score,
   isOpen,
   onClose,
+  onOpenInPDFViewer,
 }) => {
   if (!isOpen || !chunk) return null;
 
@@ -115,10 +117,24 @@ export const ChunkModal: React.FC<ChunkModalProps> = ({
 
         {/* Footer */}
         <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/40 flex justify-between items-center text-xs text-slate-400">
-          <span>Grounded retrieval citation preview</span>
+          {onOpenInPDFViewer ? (
+            <button
+              onClick={() => {
+                onOpenInPDFViewer(chunk.docId, chunk.page, chunk.id);
+                onClose();
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold transition cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>View in PDF Document Viewer (Page {chunk.page})</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          ) : (
+            <span>Grounded retrieval citation preview</span>
+          )}
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition"
+            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold transition cursor-pointer"
           >
             Close
           </button>
