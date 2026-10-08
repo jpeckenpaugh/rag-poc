@@ -25,8 +25,8 @@ import { EvaluationQuery } from './data/evaluationQueries';
 import { CorpusDocument, ChunkRecord } from './types/corpus';
 
 export const App: React.FC = () => {
-  // Navigation / View State: 'chat' | 'documents' | 'devtools' | 'about'
-  const [currentView, setCurrentView] = useState<AppViewMode>('chat');
+  // Navigation / View State: 'about' (default on load) | 'chat' | 'documents' | 'devtools'
+  const [currentView, setCurrentView] = useState<AppViewMode>('about');
 
   // Pipeline Configuration State
   const [ragConfig, setRagConfig] = useState<RAGConfig>({

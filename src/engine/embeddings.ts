@@ -1,14 +1,4 @@
-import { pipeline, env, FeatureExtractionPipeline } from '@huggingface/transformers';
 import { ChunkRecord } from '../types/corpus';
-
-// Configure environment defaults for browser execution
-if (env && env.backends && (env.backends as any).onnx) {
-  env.allowLocalModels = false;
-  env.useBrowserCache = true;
-  if ((env.backends as any).onnx?.wasm) {
-    (env.backends as any).onnx.wasm.numThreads = 1;
-  }
-}
 
 export interface EmbeddingModelOption {
   id: string;
@@ -52,44 +42,53 @@ export const SUPPORTED_EMBEDDING_MODELS: EmbeddingModelOption[] = [
 export const DEFAULT_EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 
 export type EmbeddingProgressCallback = (progress: { current: number; total: number }) => void;
-export type TransformersProgressCallback = (progress: any) => void;
 
-// Map of initialized pipelines per model ID
-const pipelineInstances: Map<string, FeatureExtractionPipeline> = new Map();
-const pipelineLoadingPromises: Map<string, Promise<FeatureExtractionPipeline>> = new Map();
+// Web Worker Singleton management
+let workerInstance: Worker | null = null;
+let requestIdCounter = 0;
 
-/**
- * Lazily initializes and returns the specified embedding pipeline.
- */
-export async function getEmbeddingPipeline(
-  modelId: string = DEFAULT_EMBEDDING_MODEL_ID,
-  progressCallback?: TransformersProgressCallback
-): Promise<FeatureExtractionPipeline> {
-  if (pipelineInstances.has(modelId)) {
-    return pipelineInstances.get(modelId)!;
+interface PendingRequest {
+  resolve: (value: any) => void;
+  reject: (reason?: any) => void;
+  onProgress?: EmbeddingProgressCallback;
+}
+
+const pendingRequests: Map<string, PendingRequest> = new Map();
+
+function getWorker(): Worker {
+  if (!workerInstance) {
+    workerInstance = new Worker(
+      new URL('../workers/embeddingWorker.ts', import.meta.url),
+      { type: 'module' }
+    );
+
+    workerInstance.onmessage = (e: MessageEvent) => {
+      const { id, type, vector, vectors, current, total, error } = e.data;
+      const pending = pendingRequests.get(id);
+      if (!pending) return;
+
+      if (type === 'embed_progress') {
+        if (pending.onProgress) {
+          pending.onProgress({ current, total });
+        }
+      } else if (type === 'embed_query_result') {
+        pendingRequests.delete(id);
+        pending.resolve(vector);
+      } else if (type === 'embed_chunks_result') {
+        pendingRequests.delete(id);
+        pending.resolve(vectors);
+      } else if (type === 'error') {
+        pendingRequests.delete(id);
+        pending.reject(new Error(error || 'Worker embedding error'));
+      }
+    };
+
+    workerInstance.onerror = (err) => {
+      console.error('Embedding worker error:', err);
+    };
   }
 
-  if (pipelineLoadingPromises.has(modelId)) {
-    return pipelineLoadingPromises.get(modelId)!;
-  }
-
-  const loadPromise = (async () => {
-    try {
-      const extractor = (await (pipeline as any)('feature-extraction', modelId, {
-        quantized: true,
-        progress_callback: progressCallback,
-      })) as unknown as FeatureExtractionPipeline;
-
-      pipelineInstances.set(modelId, extractor);
-      return extractor;
-    } catch (err) {
-      pipelineLoadingPromises.delete(modelId);
-      throw err;
-    }
-  })();
-
-  pipelineLoadingPromises.set(modelId, loadPromise);
-  return loadPromise;
+  return workerInstance;
 }
 
 /**
@@ -112,47 +111,27 @@ export function normalizeVector(vector: Float32Array): Float32Array {
 }
 
 /**
- * Embeds a single query string, returning a normalized Float32Array.
+ * Embeds a single query string via background Web Worker, returning a normalized Float32Array.
  */
 export async function embedQuery(
   query: string,
   modelId: string = DEFAULT_EMBEDDING_MODEL_ID
 ): Promise<Float32Array> {
-  const extractor = await getEmbeddingPipeline(modelId);
-  const output: any = await (extractor as any)(query, { pooling: 'mean', normalize: true });
-  const rawArray = Array.from(output.data as ArrayLike<number>);
-  return normalizeVector(new Float32Array(rawArray));
+  const worker = getWorker();
+  const id = `req-${++requestIdCounter}`;
+
+  return new Promise((resolve, reject) => {
+    pendingRequests.set(id, { resolve, reject });
+    worker.postMessage({
+      id,
+      type: 'embed_query',
+      payload: { text: query, modelId },
+    });
+  });
 }
 
 /**
- * Embeds a list of text strings in sequential or batch mode, invoking progress callbacks.
- */
-export async function embedTexts(
-  texts: string[],
-  onProgress?: EmbeddingProgressCallback,
-  modelId: string = DEFAULT_EMBEDDING_MODEL_ID
-): Promise<Float32Array[]> {
-  const extractor = await getEmbeddingPipeline(modelId);
-  const results: Float32Array[] = [];
-  const total = texts.length;
-
-  for (let i = 0; i < total; i++) {
-    const text = texts[i];
-    const output: any = await (extractor as any)(text, { pooling: 'mean', normalize: true });
-    const rawArray = Array.from(output.data as ArrayLike<number>);
-    const normalized = normalizeVector(new Float32Array(rawArray));
-    results.push(normalized);
-
-    if (onProgress) {
-      onProgress({ current: i + 1, total });
-    }
-  }
-
-  return results;
-}
-
-/**
- * Embeds an array of ChunkRecords, mutating each chunk to attach its Float32Array vector.
+ * Embeds an array of ChunkRecords in background Web Worker, mutating each chunk with its vector.
  */
 export async function embedChunks(
   chunks: ChunkRecord[],
@@ -164,9 +143,20 @@ export async function embedChunks(
 
   if (total === 0) return chunks;
 
-  const embeddings = await embedTexts(texts, onProgress, modelId);
+  const worker = getWorker();
+  const id = `req-${++requestIdCounter}`;
+
+  const vectors: Float32Array[] = await new Promise((resolve, reject) => {
+    pendingRequests.set(id, { resolve, reject, onProgress });
+    worker.postMessage({
+      id,
+      type: 'embed_chunks',
+      payload: { texts, modelId },
+    });
+  });
+
   for (let i = 0; i < total; i++) {
-    chunks[i].vector = embeddings[i];
+    chunks[i].vector = vectors[i];
   }
 
   return chunks;

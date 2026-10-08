@@ -100,8 +100,20 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* 2. Primary Navigation Tabs (View Switcher) */}
+          {/* 2. Primary Navigation Tabs (View Switcher: About first) */}
           <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner self-start md:self-center overflow-x-auto max-w-full">
+            <button
+              onClick={() => onViewChange('about')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                currentView === 'about'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span>About</span>
+            </button>
+
             <button
               onClick={() => onViewChange('chat')}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
@@ -136,18 +148,6 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Terminal className="w-3.5 h-3.5" />
               <span>DevTools</span>
-            </button>
-
-            <button
-              onClick={() => onViewChange('about')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
-                currentView === 'about'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-              }`}
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>Architecture & About</span>
             </button>
           </div>
 
