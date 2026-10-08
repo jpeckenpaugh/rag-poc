@@ -297,13 +297,15 @@ export const App: React.FC = () => {
         const queryVector = await embedQuery(queryText);
         setQueryVectorSample(Array.from(queryVector.slice(0, 8)));
 
-        // Step 2: Dot-product linear scan search (Top-5, threshold 0.12 for candidate discovery)
-        const rankedMatches = vectorStore.search(queryVector, 5, 0.12);
+        // Step 2: Dot-product linear scan search (Top-5, threshold 0.05 for candidate discovery)
+        const rankedMatches = vectorStore.search(queryVector, 5, 0.05);
         setLatestSearchResults(rankedMatches);
+        console.log(`[RAG Search] Query: "${queryText}" | Top matches:`, rankedMatches);
 
         // Step 3: Assemble strict anti-hallucination prompt
-        const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.12 });
+        const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.05 });
         setAssembledPrompt(assembled);
+        console.log('[RAG Prompt] Assembled context chunks:', assembled.includedChunks.length, 'hasRelevantContext:', assembled.hasRelevantContext);
 
         // Add assistant placeholder with streaming flag
         setMessages((prev) => [
@@ -332,8 +334,9 @@ export const App: React.FC = () => {
               )
             );
           },
-          0.12
+          0.05
         );
+        console.log('[RAG Result] Output mode:', result.mode, 'result text:', result.text);
 
         // Finalize assistant message
         setMessages((prev) =>

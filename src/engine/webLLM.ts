@@ -193,6 +193,7 @@ export class WebLLMClient {
     // Check WebGPU availability before attempting LLM run
     const gpuSupport = await checkWebGPUSupport();
     if (!gpuSupport.supported) {
+      console.warn('[WebLLM] WebGPU not supported:', gpuSupport.reason);
       const fallback = formatRetrievalFallback(query, retrievedChunks, gpuSupport.reason);
       if (onToken) onToken(fallback);
       return {
@@ -203,14 +204,16 @@ export class WebLLMClient {
     }
 
     try {
+      console.log('[WebLLM] Starting generation stream with prompt length:', assembled.fullPrompt.length);
       const answer = await this.generateAnswerStream(assembled, onToken);
+      console.log('[WebLLM] Generation finished successfully. Tokens length:', answer.length);
       return {
         text: answer,
         mode: 'llm',
         citations: assembled.includedChunks,
       };
     } catch (err) {
-      console.warn('WebLLM generation failed, falling back to semantic retrieval view:', err);
+      console.warn('[WebLLM] WebLLM generation failed, falling back to semantic retrieval view:', err);
       const reason = err instanceof Error ? err.message : String(err);
       const fallback = formatRetrievalFallback(query, retrievedChunks, reason);
       if (onToken) onToken(fallback);
