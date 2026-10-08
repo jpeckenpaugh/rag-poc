@@ -11,6 +11,45 @@ import {
   type RetrievedChunkMatch,
 } from './promptAssembler';
 
+export interface LLMModelOption {
+  id: string;
+  name: string;
+  parameters: string;
+  vramRequiredMB: number;
+  description: string;
+}
+
+export const SUPPORTED_LLM_MODELS: LLMModelOption[] = [
+  {
+    id: 'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+    name: 'Llama 3.2 1B Instruct (Default)',
+    parameters: '1.2B',
+    vramRequiredMB: 880,
+    description: 'Meta flagship lightweight model. Fast generation, balanced reasoning, and low VRAM footprint.',
+  },
+  {
+    id: 'SmolLM2-1.7B-Instruct-q4f16_1-MLC',
+    name: 'SmolLM2 1.7B Instruct',
+    parameters: '1.7B',
+    vramRequiredMB: 1100,
+    description: 'HuggingFace high-performance small model. Strong instruction compliance and factual reasoning.',
+  },
+  {
+    id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+    name: 'Qwen 2.5 0.5B Instruct',
+    parameters: '0.5B',
+    vramRequiredMB: 400,
+    description: 'Ultra-lightweight model. Instant download, minimal memory, ideal for low-power mobile or laptop GPUs.',
+  },
+  {
+    id: 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC',
+    name: 'Qwen 2.5 1.5B Instruct',
+    parameters: '1.5B',
+    vramRequiredMB: 1150,
+    description: 'Alibaba flagship compact model with strong structured context extraction capabilities.',
+  },
+];
+
 export const DEFAULT_MODEL_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
 
 export interface WebLLMClientState {
@@ -43,6 +82,10 @@ export class WebLLMClient {
     return { ...this.state };
   }
 
+  public getModelId(): string {
+    return this.modelId;
+  }
+
   public onProgress(listener: ProgressListener): () => void {
     this.listeners.add(listener);
     if (this.state.progressReport) {
@@ -61,6 +104,45 @@ export class WebLLMClient {
       } catch (err) {
         console.error('Error in WebLLM progress listener:', err);
       }
+    }
+  }
+
+  /**
+   * Switches the active LLM model. Unloads current engine from WebGPU memory and resets state.
+   */
+  public async switchModel(newModelId: string, autoWarmup = false): Promise<void> {
+    if (this.modelId === newModelId && this.engine) {
+      return;
+    }
+
+    if (this.engine) {
+      try {
+        // Discard / unload existing WebGPU engine
+        await this.engine.unload();
+      } catch (e) {
+        console.warn('Failed to cleanly unload previous WebLLM engine:', e);
+      }
+      this.engine = null;
+    }
+
+    this.modelId = newModelId;
+    this.initPromise = null;
+    this.state = {
+      isInitializing: false,
+      isReady: false,
+      selectedModel: newModelId,
+      error: undefined,
+      progressReport: undefined,
+    };
+
+    this.notifyProgress({
+      progress: 0,
+      timeElapsed: 0,
+      text: `Selected ${newModelId}. Click Warmup to load weights into WebGPU.`,
+    });
+
+    if (autoWarmup) {
+      await this.initialize();
     }
   }
 
@@ -104,7 +186,7 @@ export class WebLLMClient {
         this.notifyProgress({
           progress: 1.0,
           timeElapsed: 0,
-          text: 'Model engine ready in WebGPU',
+          text: `Model engine ready in WebGPU (${this.modelId})`,
         });
         return engine;
       } catch (error) {
@@ -148,7 +230,7 @@ export class WebLLMClient {
     const asyncChunks = await this.engine.chatCompletion({
       stream: true,
       messages,
-      temperature: 0.2, // Balanced temperature for factual reasoning
+      temperature: 0.2,
       max_tokens: 512,
     });
 
@@ -169,19 +251,17 @@ export class WebLLMClient {
 
   /**
    * Full end-to-end RAG answering pipeline with automatic fallback handling.
-   * If WebGPU is not supported or initialization fails, generates a structured retrieval fallback.
    */
   public async answerQuery(
     query: string,
     retrievedChunks: RetrievedChunkMatch[],
     onToken?: (token: string) => void,
-    similarityThreshold = 0.10
+    similarityThreshold = 0.05
   ): Promise<{ text: string; mode: 'llm' | 'retrieval-fallback'; citations: RetrievedChunkMatch[] }> {
     const assembled = assemblePrompt(query, retrievedChunks, { similarityThreshold });
 
-    // If context is completely missing, return direct anti-hallucination refusal without calling LLM
     if (!assembled.hasRelevantContext) {
-      const refusal = 'I cannot find this information in the provided documentation.';
+      const refusal = 'The provided Northstar operational documentation does not contain this information.';
       if (onToken) onToken(refusal);
       return {
         text: refusal,
@@ -190,7 +270,6 @@ export class WebLLMClient {
       };
     }
 
-    // Check WebGPU availability before attempting LLM run
     const gpuSupport = await checkWebGPUSupport();
     if (!gpuSupport.supported) {
       console.warn('[WebLLM] WebGPU not supported:', gpuSupport.reason);
@@ -204,16 +283,15 @@ export class WebLLMClient {
     }
 
     try {
-      console.log('[WebLLM] Starting generation stream with prompt length:', assembled.fullPrompt.length);
+      console.log('[WebLLM] Starting generation with model:', this.modelId);
       const answer = await this.generateAnswerStream(assembled, onToken);
-      console.log('[WebLLM] Generation finished successfully. Tokens length:', answer.length);
       return {
         text: answer,
         mode: 'llm',
         citations: assembled.includedChunks,
       };
     } catch (err) {
-      console.warn('[WebLLM] WebLLM generation failed, falling back to semantic retrieval view:', err);
+      console.warn('[WebLLM] WebLLM generation failed, falling back to retrieval view:', err);
       const reason = err instanceof Error ? err.message : String(err);
       const fallback = formatRetrievalFallback(query, retrievedChunks, reason);
       if (onToken) onToken(fallback);

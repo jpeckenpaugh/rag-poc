@@ -1,7 +1,7 @@
 # Client-Only In-Memory Browser RAG Proof-of-Concept
 
-[![Deploy to GitHub Pages](https://github.com/jpeckenpaugh/rag-poc/actions/workflows/deploy.yml/badge.svg)](https://github.com/jpeckenpaugh/rag-poc/actions/workflows/deploy.yml)
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb)](https://jpeckenpaugh/rag-poc/)
+[![Deploy to GitHub Pages](https://github.com/jpeckenpaugh/rag-poc/actions/workflows/deploy-01.yml/badge.svg)](https://github.com/jpeckenpaugh/rag-poc/actions/workflows/deploy-01.yml)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-2563eb)](https://jpeckenpaugh.github.io/rag-poc/)
 
 > **Live Demo:** [https://jpeckenpaugh.github.io/rag-poc/](https://jpeckenpaugh.github.io/rag-poc/)
 
@@ -15,35 +15,34 @@ A **100% client-side, zero-backend Retrieval-Augmented Generation (RAG)** single
 flowchart TD
     subgraph Browser["Client Browser Sandbox (Zero Backend / Zero External APIs)"]
         subgraph Ingestion["1. Ingestion & Chunking"]
-            PDFs["21 Operational PDFs (64 pages)"] -->|pdfjs-dist| Extractor["Per-Page Text Extractor"]
-            Extractor -->|500 char sliding window / 100 char overlap| Chunker["Chunker + Metadata Header Prefix"]
+            PDFs["21 Operational PDFs (64 pages)"] --> Extractor["Per-Page Text Extractor (PDF.js)"]
+            Extractor --> Chunker["Sliding Window Chunker (500ch / 100ov)"]
         end
 
         subgraph Embeddings["2. Embedding Pipeline"]
-            Chunker -->|367 chunks| WebWorker["Dedicated Web Worker (Comlink / Worker API)"]
-            WebWorker -->|@huggingface/transformers / ONNX WASM| MiniLM["Xenova/all-MiniLM-L6-v2 (384d Normalized)"]
+            Chunker --> Transformers["Transformers.js (ONNX Runtime Web)"]
+            Transformers --> EmbedModels["all-MiniLM-L6-v2 / bge-small / mpnet"]
         end
 
         subgraph VectorStore["3. In-Memory Vector Store"]
-            MiniLM -->|Contiguous Typed Arrays| FloatArray["Float32Array Heap Store (~564 KB RAM)"]
-            QueryText["User Query"] -->|Embed Query| QueryVec["Query Vector (384d)"]
-            QueryVec -->|Linear Dot Product O(N)| VectorSearch["Top-K Cosine Similarity Scan"]
+            EmbedModels --> FloatArray["Float32Array Heap Store (~564 KB RAM)"]
+            QueryText["User Query"] --> QueryVec["Query Vector"]
+            QueryVec --> VectorSearch["Linear Dot Product O(N) Scan (< 2ms)"]
             FloatArray --> VectorSearch
         end
 
         subgraph Grounding["4. Grounding & Generation"]
-            VectorSearch -->|Top Matched Chunks + Citations| PromptEngine["Prompt Assembler & Anti-Hallucination Guardrails"]
-            PromptEngine -->|System + Grounded Context| WebLLM["@mlc-ai/web-llm (WebGPU Acceleration)"]
-            WebLLM -.->|Llama-3.2-1B-Instruct-q4f16_1-MLC| LLMGen["Streaming Grounded Answer"]
-            VectorSearch -.->|WebGPU Fallback Mode| SemanticView["Interactive Semantic Retrieval View"]
+            VectorSearch --> PromptEngine["Prompt Assembler & Citations"]
+            PromptEngine --> WebLLM["WebLLM (WebGPU Acceleration)"]
+            WebLLM --> LLMGen["Streaming Answer (Llama 3.2 / SmolLM2 / Qwen)"]
+            VectorSearch -.-> SemanticView["CPU Fallback Retrieval View"]
         end
 
-        subgraph Inspectability["5. Developer Inspectability Drawer"]
-            Chunker --> DevChunks["1. Chunks & Metadata Inspector"]
-            FloatArray --> DevVectors["2. Vector Math & Dimensions"]
-            VectorSearch --> DevScores["3. Similarity Scoring Breakdown"]
-            PromptEngine --> DevPrompt["4. Raw Assembled Prompt Preview"]
-            BrowserInfo["WebGPU / Web Worker / Heap"] --> DevDiag["5. Runtime Diagnostics"]
+        subgraph Inspectability["5. Developer Inspectability & Tools"]
+            Chunker --> DevChunks["PDF & Chunk Visualizer"]
+            FloatArray --> DevVectors["Vector Math Inspector"]
+            PromptEngine --> DevPrompt["Raw Prompt Preview"]
+            BrowserInfo["Hardware & Diagnostics"] --> DevDiag["VRAM / Heap Diagnostics"]
         end
     end
 ```
@@ -53,9 +52,10 @@ flowchart TD
 1. **Zero Backend Required:** Fully static bundle hosted on GitHub Pages. No backend microservices, vector databases (like Pinecone or Weaviate), or cloud LLM endpoints (like OpenAI or Anthropic).
 2. **Private & Secure:** Your queries, documents, embeddings, and completions never leave your browser sandbox.
 3. **In-Memory Heap Vector Index:** 367 chunk embeddings stored as contiguous `Float32Array` buffers directly in JavaScript memory. Similarity search runs via high-speed linear dot-product vector mathematics ($O(N)$, $< 2\text{ ms}$ for the entire corpus).
-4. **WebGPU Local Inference:** Powered by `@mlc-ai/web-llm` running `Llama-3.2-1B-Instruct-q4f16_1-MLC` (~880 MB weights cached locally in browser Cache Storage).
-5. **Graceful Fallback:** Automatically detects WebGPU support (`navigator.gpu`). If WebGPU is unavailable or disabled, the app falls back to **Semantic Retrieval Mode**, displaying ranked chunk matches, cosine similarity scores, and source evidence.
-6. **Educational DevTools:** A built-in developer drawer exposes raw chunking, vector norms, similarity math breakdown, and assembled system prompts.
+4. **WebGPU Local Inference:** Powered by `@mlc-ai/web-llm` running `Llama-3.2-1B-Instruct-q4f16_1-MLC` (~880 MB weights cached locally in browser Cache Storage / IndexedDB).
+5. **Configurable Models & Pipelines:** Hot-swap between 4 WebGPU LLMs (`Llama-3.2-1B`, `SmolLM2-1.7B`, `Qwen2.5-0.5B`, `Qwen2.5-1.5B`) and 4 ONNX embedding models (`all-MiniLM-L6-v2`, `bge-small-en-v1.5`, `paraphrase-MiniLM-L3`, `all-mpnet-base-v2`).
+6. **Graceful Fallback:** Automatically detects WebGPU support (`navigator.gpu`). If WebGPU is unavailable or disabled, the app falls back to **Semantic Retrieval Mode**, displaying ranked chunk matches, cosine similarity scores, and source evidence.
+7. **Educational DevTools & PDF Viewer:** Built-in PDF reader with canvas rendering, visual chunk inspection side-by-side, vector norms breakdown, and raw system prompt inspectability.
 
 ---
 
@@ -63,9 +63,9 @@ flowchart TD
 
 The demo is preloaded with the official operational non-clinical policy corpus of **Northstar Urgent Care Cooperative**:
 
-* **Documents:** 21 operational policy and governance PDFs (`NU-OPS-001` through `NU-OPS-021`).
+* **Documents:** 21 operational policy and governance PDFs (`NU-OPS-001` through `NU-OPS-020`).
 * **Page Count:** 64 total pages of operational standards, governance, facilities, and access controls.
-* **Indexed Chunks:** 367 chunks with rich metadata headers (`[Document: NU-OPS-XXX.pdf | Title: ... | Status: Active | Page: Y]`).
+* **Indexed Chunks:** ~367 chunks with rich metadata headers (`[Document: NU-OPS-XXX.pdf | Title: ... | Status: Active | Page: Y]`).
 * **Total Vector Memory:** ~564 KB RAM in standard `Float32Array` buffers.
 
 ---
@@ -74,49 +74,22 @@ The demo is preloaded with the official operational non-clinical policy corpus o
 
 The application features a dedicated **Evaluation Query Bar** with 15 pre-configured benchmark queries:
 
-### 1. Answerable Queries (10 Queries)
-These test precise semantic retrieval and accurate citation attribution:
-* **Q-001:** Routine site opening handoff requirements (`NU-OPS-002.pdf`, p. 2)
-* **Q-002:** Scheduled Harbor Point after-hours exception window (`NU-OPS-004.pdf`, p. 1)
-* **Q-003:** Current facilities procedure vs superseded edition (`NU-OPS-003.pdf`, p. 1; `NU-OPS-016.pdf`, p. 1)
-* **Q-004:** Schedule request approval requirements (`NU-OPS-005.pdf`, p. 2)
-* **Q-005:** Staffing shortage escalation tier 1 and tier 2 (`NU-OPS-006.pdf`, p. 1)
-* **Q-006:** Temporary badge issuance retention and retrieval log (`NU-OPS-007.pdf`, p. 2)
-* **Q-007:** Lost property logged in locked storage duration (`NU-OPS-008.pdf`, p. 1)
-* **Q-008:** Minor spill kit contents and maximum threshold (`NU-OPS-009.pdf`, p. 1)
-* **Q-009:** Clean linen delivery verification discrepancy notation (`NU-OPS-010.pdf`, p. 2)
-* **Q-010:** Courier pickup temperature-sensitive specimen pouch status (`NU-OPS-011.pdf`, p. 2)
-
-### 2. Negative & Guardrail Queries (5 Queries)
-These test strict grounding and anti-hallucination guardrails where the policy corpus does not contain the answer:
-* **Q-011 (Clinical Triage):** Adult chest pain dosage recommendations *(Correct response: Abstain; policies are strictly non-clinical administrative documents)*
-* **Q-012 (Out of Scope Facility):** Downtown Clinic pediatric weekend urgent care hours *(Correct response: Abstain; Downtown Clinic is not in the cooperative directory)*
-* **Q-013 (Medical Device):** Site Lead calibration procedure for GE ultrasound machines *(Correct response: Abstain; no ultrasound calibration protocol exists in the corpus)*
-* **Q-014 (Financial / Billing):** Sliding-fee discount schedule for uninsured patients *(Correct response: Abstain; billing and charity care policies are outside the operational corpus)*
-* **Q-015 (Unverified Rumor):** Closing date for West End site consolidation *(Correct response: Abstain; no West End closure or consolidation is authorized in active policy)*
+* **10 Answerable Queries:** Verified factual extractions across routine opening handoffs (`NU-OPS-002`), facilities procedure versioning (`NU-OPS-003` superseding `NU-OPS-016`), service interruption escalation timing (`NU-OPS-006`), and monthly metrics deadlines (`NU-OPS-019`).
+* **5 Guardrail & Negative Queries:** Verified strict model abstentions against:
+  * Out-of-domain medical queries (e.g. ibuprofen dosage).
+  * Out-of-domain insurance/copay inquiries.
+  * Unestablished regular Friday office hours (preventing confusion with temporary Harbor Point exceptions).
+  * Open/unresolved policy questions (vendor record retention, backup deputy roles).
 
 ---
 
-## 🛠️ Developer Inspectability & Educational Features
-
-Open the **DevTools Drawer** at the bottom of the screen to explore each phase of the RAG pipeline:
-
-1. **Chunks Inspector:** Search, filter, and inspect all 367 extracted chunks, complete with source PDF, page numbers, character lengths, and metadata tags.
-2. **Search & Vector Math:** View the 384-dimensional query vector, Top-$K$ retrieved matches, and exact cosine similarity score calculations:
-   $$\text{Similarity}(q, c) = \frac{\mathbf{q} \cdot \mathbf{c}}{\|\mathbf{q}\| \|\mathbf{c}\|}$$
-3. **Prompt Preview:** View the exact system prompt, ground truth constraints, citation requirements, and formatted context snippets passed to the LLM.
-4. **Diagnostics:** Inspect real-time client diagnostics, including WebGPU adapter info, Web Worker status, in-memory heap footprint, and cache utilization.
-
----
-
-## 💻 Local Development & Build
+## 🛠️ Local Development & Build
 
 ### Prerequisites
-- [Node.js](https://nodejs.org/) v20+ or v22+
-- npm v10+
-- A modern browser (Chrome 113+, Edge 113+, Safari 18+, or Firefox Nightly) for WebGPU acceleration.
+* **Node.js:** `v20+` or `v22+`
+* **Browser:** Chrome, Edge, or Safari with WebGPU support enabled (for local LLM inference).
 
-### Getting Started
+### Installation & Run
 
 ```bash
 # Clone the repository
@@ -126,37 +99,22 @@ cd rag-poc
 # Install dependencies
 npm install
 
-# Start the Vite local development server
+# Start local development server
 npm run dev
 ```
 
-Visit `http://localhost:5173` in your browser.
+Visit `http://localhost:5173/rag-poc/` in your browser.
 
 ### Production Build
 
 ```bash
-# Type check and build optimized static assets
 npm run build
-
-# Preview production build locally
-npm run preview
 ```
 
-The compiled output will be generated in `dist/`.
-
----
-
-## 🚢 Continuous Deployment
-
-This repository uses GitHub Actions (`.github/workflows/deploy.yml`) to automatically build and deploy to GitHub Pages on every push to the `main` branch.
-
-To enable GitHub Pages in your own fork:
-1. Navigate to **Settings > Pages** in your GitHub repository.
-2. Under **Build and deployment > Source**, select **GitHub Actions**.
-3. Push to `main` to trigger the build and deployment.
+The production assets will be output to `./dist/` ready for static deployment.
 
 ---
 
 ## 📄 License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License. Designed for education, research, and zero-backend web architecture demonstrations.

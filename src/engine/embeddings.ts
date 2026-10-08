@@ -10,42 +10,86 @@ if (env && env.backends && (env.backends as any).onnx) {
   }
 }
 
+export interface EmbeddingModelOption {
+  id: string;
+  name: string;
+  dimensions: number;
+  sizeMB: number;
+  description: string;
+}
+
+export const SUPPORTED_EMBEDDING_MODELS: EmbeddingModelOption[] = [
+  {
+    id: 'Xenova/all-MiniLM-L6-v2',
+    name: 'all-MiniLM-L6-v2 (Default)',
+    dimensions: 384,
+    sizeMB: 23,
+    description: 'Fast, compact industry benchmark. 384-dim embeddings with low memory overhead.',
+  },
+  {
+    id: 'Xenova/bge-small-en-v1.5',
+    name: 'bge-small-en-v1.5',
+    dimensions: 384,
+    sizeMB: 33,
+    description: 'BAAI flagship retrieval model. High semantic sensitivity and MTEB benchmark performance.',
+  },
+  {
+    id: 'Xenova/paraphrase-MiniLM-L3-v2',
+    name: 'paraphrase-MiniLM-L3-v2',
+    dimensions: 384,
+    sizeMB: 17,
+    description: 'Ultra-lightweight 3-layer transformer. Extremely fast execution for low-power devices.',
+  },
+  {
+    id: 'Xenova/all-mpnet-base-v2',
+    name: 'all-mpnet-base-v2',
+    dimensions: 768,
+    sizeMB: 110,
+    description: '768-dim high-capacity model. Deep semantic nuance at higher compute footprint.',
+  },
+];
+
+export const DEFAULT_EMBEDDING_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+
 export type EmbeddingProgressCallback = (progress: { current: number; total: number }) => void;
 export type TransformersProgressCallback = (progress: any) => void;
 
-let pipelineInstance: FeatureExtractionPipeline | null = null;
-let pipelineLoadingPromise: Promise<FeatureExtractionPipeline> | null = null;
+// Map of initialized pipelines per model ID
+const pipelineInstances: Map<string, FeatureExtractionPipeline> = new Map();
+const pipelineLoadingPromises: Map<string, Promise<FeatureExtractionPipeline>> = new Map();
 
 /**
- * Lazily initializes and returns the Xenova/all-MiniLM-L6-v2 pipeline singleton.
+ * Lazily initializes and returns the specified embedding pipeline.
  */
 export async function getEmbeddingPipeline(
+  modelId: string = DEFAULT_EMBEDDING_MODEL_ID,
   progressCallback?: TransformersProgressCallback
 ): Promise<FeatureExtractionPipeline> {
-  if (pipelineInstance) {
-    return pipelineInstance;
+  if (pipelineInstances.has(modelId)) {
+    return pipelineInstances.get(modelId)!;
   }
 
-  if (pipelineLoadingPromise) {
-    return pipelineLoadingPromise;
+  if (pipelineLoadingPromises.has(modelId)) {
+    return pipelineLoadingPromises.get(modelId)!;
   }
 
-  pipelineLoadingPromise = (async () => {
+  const loadPromise = (async () => {
     try {
-      const extractor = (await (pipeline as any)('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      const extractor = (await (pipeline as any)('feature-extraction', modelId, {
         quantized: true,
         progress_callback: progressCallback,
       })) as unknown as FeatureExtractionPipeline;
 
-      pipelineInstance = extractor;
+      pipelineInstances.set(modelId, extractor);
       return extractor;
     } catch (err) {
-      pipelineLoadingPromise = null;
+      pipelineLoadingPromises.delete(modelId);
       throw err;
     }
   })();
 
-  return pipelineLoadingPromise;
+  pipelineLoadingPromises.set(modelId, loadPromise);
+  return loadPromise;
 }
 
 /**
@@ -68,11 +112,13 @@ export function normalizeVector(vector: Float32Array): Float32Array {
 }
 
 /**
- * Embeds a single query string, returning a normalized 384-dimensional Float32Array.
+ * Embeds a single query string, returning a normalized Float32Array.
  */
-export async function embedQuery(query: string): Promise<Float32Array> {
-  const extractor = await getEmbeddingPipeline();
-  // Using mean pooling and requesting normalized output
+export async function embedQuery(
+  query: string,
+  modelId: string = DEFAULT_EMBEDDING_MODEL_ID
+): Promise<Float32Array> {
+  const extractor = await getEmbeddingPipeline(modelId);
   const output: any = await (extractor as any)(query, { pooling: 'mean', normalize: true });
   const rawArray = Array.from(output.data as ArrayLike<number>);
   return normalizeVector(new Float32Array(rawArray));
@@ -83,9 +129,10 @@ export async function embedQuery(query: string): Promise<Float32Array> {
  */
 export async function embedTexts(
   texts: string[],
-  onProgress?: EmbeddingProgressCallback
+  onProgress?: EmbeddingProgressCallback,
+  modelId: string = DEFAULT_EMBEDDING_MODEL_ID
 ): Promise<Float32Array[]> {
-  const extractor = await getEmbeddingPipeline();
+  const extractor = await getEmbeddingPipeline(modelId);
   const results: Float32Array[] = [];
   const total = texts.length;
 
@@ -109,14 +156,15 @@ export async function embedTexts(
  */
 export async function embedChunks(
   chunks: ChunkRecord[],
-  onProgress?: EmbeddingProgressCallback
+  onProgress?: EmbeddingProgressCallback,
+  modelId: string = DEFAULT_EMBEDDING_MODEL_ID
 ): Promise<ChunkRecord[]> {
   const texts = chunks.map((c) => c.text);
   const total = texts.length;
 
   if (total === 0) return chunks;
 
-  const embeddings = await embedTexts(texts, onProgress);
+  const embeddings = await embedTexts(texts, onProgress, modelId);
   for (let i = 0; i < total; i++) {
     chunks[i].vector = embeddings[i];
   }

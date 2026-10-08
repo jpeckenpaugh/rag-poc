@@ -5,14 +5,16 @@ import { ChatInterface, ChatMessage } from './components/ChatInterface';
 import { DevToolsDrawer } from './components/DevToolsDrawer';
 import { ChunkModal } from './components/ChunkModal';
 import { PDFViewer } from './components/PDFViewer';
+import { SettingsModal, RAGConfig } from './components/SettingsModal';
+import { AboutView } from './components/AboutView';
 
 // Engines & Data
 import { checkWebGPUSupport, GPUSupportResult } from './engine/gpuCheck';
 import { extractTextFromUrl, extractTextFromPDF } from './engine/pdfExtractor';
 import { chunkDocument, chunkDocuments } from './engine/chunker';
-import { embedChunks, embedQuery } from './engine/embeddings';
+import { embedChunks, embedQuery, DEFAULT_EMBEDDING_MODEL_ID } from './engine/embeddings';
 import { InMemoryVectorStore, VectorStoreStats } from './engine/vectorStore';
-import { getWebLLMClient, WebLLMClientState } from './engine/webLLM';
+import { getWebLLMClient, WebLLMClientState, DEFAULT_MODEL_ID } from './engine/webLLM';
 import { assemblePrompt, AssembledPrompt, RetrievedChunkMatch } from './engine/promptAssembler';
 import {
   loadChunksFromCache,
@@ -23,8 +25,20 @@ import { EvaluationQuery } from './data/evaluationQueries';
 import { CorpusDocument, ChunkRecord } from './types/corpus';
 
 export const App: React.FC = () => {
-  // Navigation / View State: 'chat' | 'documents' | 'devtools'
+  // Navigation / View State: 'chat' | 'documents' | 'devtools' | 'about'
   const [currentView, setCurrentView] = useState<AppViewMode>('chat');
+
+  // Pipeline Configuration State
+  const [ragConfig, setRagConfig] = useState<RAGConfig>({
+    llmModelId: DEFAULT_MODEL_ID,
+    embeddingModelId: DEFAULT_EMBEDDING_MODEL_ID,
+    windowSize: 500,
+    overlap: 100,
+    topK: 5,
+    similarityThreshold: 0.05,
+  });
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   // Vector store singleton in component state
   const vectorStore = useMemo(() => new InMemoryVectorStore(), []);
@@ -115,7 +129,7 @@ export const App: React.FC = () => {
     if (meta && meta.chunkCount > 0) {
       setHasCachedCorpus(true);
       // Auto-restore cached chunks immediately on mount
-      loadChunksFromCache()
+      loadChunksFromCache(ragConfig.embeddingModelId, ragConfig.windowSize, ragConfig.overlap)
         .then((cachedChunks) => {
           if (cachedChunks && cachedChunks.length > 0) {
             vectorStore.setChunks(cachedChunks);
@@ -126,9 +140,9 @@ export const App: React.FC = () => {
         })
         .catch((e) => console.warn('Could not auto-restore cached chunks:', e));
     }
-  }, [vectorStore]);
+  }, [vectorStore, ragConfig.embeddingModelId, ragConfig.windowSize, ragConfig.overlap]);
 
-  // Handler: Ingest Northstar 21 PDF Corpus (Supports cache restore vs force regenerate)
+  // Handler: Ingest Northstar 21 PDF Corpus with active configuration
   const handleLoadCorpus = useCallback(
     async (forceRegenerate = false) => {
       if (isCorpusLoading) return;
@@ -138,7 +152,11 @@ export const App: React.FC = () => {
         // If not forcing regenerate, try loading from browser cache first
         if (!forceRegenerate) {
           setCorpusLoadStage('Checking local IndexedDB cache for embeddings...');
-          const cached = await loadChunksFromCache();
+          const cached = await loadChunksFromCache(
+            ragConfig.embeddingModelId,
+            ragConfig.windowSize,
+            ragConfig.overlap
+          );
           if (cached && cached.length > 0) {
             vectorStore.setChunks(cached);
             const stats = vectorStore.getStats();
@@ -176,22 +194,26 @@ export const App: React.FC = () => {
           extractedDocs.push(extracted);
         }
 
-        // 3. Sliding-window chunking
-        setCorpusLoadStage(`Chunking ${extractedDocs.length} extracted documents...`);
+        // 3. Sliding-window chunking using active config
+        setCorpusLoadStage(`Chunking ${extractedDocs.length} extracted documents (window: ${ragConfig.windowSize}, overlap: ${ragConfig.overlap})...`);
         const rawChunks = chunkDocuments(extractedDocs, {
-          windowSize: 500,
-          overlap: 100,
+          windowSize: ragConfig.windowSize,
+          overlap: ragConfig.overlap,
           minThreshold: 60,
         });
 
-        // 4. Vectorize chunks with in-browser MiniLM-L6-v2 ONNX
-        setCorpusLoadStage(`Vectorizing ${rawChunks.length} chunks via all-MiniLM-L6-v2...`);
+        // 4. Vectorize chunks with selected ONNX model
+        setCorpusLoadStage(`Vectorizing ${rawChunks.length} chunks via ${ragConfig.embeddingModelId}...`);
         setCorpusProgress({ current: 0, total: rawChunks.length });
 
-        const embeddedChunks = await embedChunks(rawChunks, ({ current, total }) => {
-          setCorpusProgress({ current, total });
-          setCorpusLoadStage(`Vectorizing chunks (${current}/${total})...`);
-        });
+        const embeddedChunks = await embedChunks(
+          rawChunks,
+          ({ current, total }) => {
+            setCorpusProgress({ current, total });
+            setCorpusLoadStage(`Vectorizing chunks (${current}/${total})...`);
+          },
+          ragConfig.embeddingModelId
+        );
 
         // 5. Store chunks in in-memory vector store
         vectorStore.setChunks(embeddedChunks);
@@ -201,7 +223,12 @@ export const App: React.FC = () => {
 
         // 6. Cache into browser IndexedDB for fast reload
         setCorpusLoadStage('Saving embeddings to browser cache (IndexedDB)...');
-        await saveChunksToCache(embeddedChunks);
+        await saveChunksToCache(
+          embeddedChunks,
+          ragConfig.embeddingModelId,
+          ragConfig.windowSize,
+          ragConfig.overlap
+        );
         setHasCachedCorpus(true);
 
         setCorpusLoadStage(`Ready! Ingested & cached ${embeddedChunks.length} chunks across ${totalDocs} documents.`);
@@ -212,7 +239,7 @@ export const App: React.FC = () => {
         setIsCorpusLoading(false);
       }
     },
-    [isCorpusLoading, manifest, vectorStore]
+    [isCorpusLoading, manifest, vectorStore, ragConfig]
   );
 
   // Handler: Upload custom PDF
@@ -231,12 +258,20 @@ export const App: React.FC = () => {
         });
 
         setCorpusLoadStage(`Chunking ${file.name}...`);
-        const newChunks = chunkDocument(extracted);
+        const newChunks = chunkDocument(extracted, {
+          windowSize: ragConfig.windowSize,
+          overlap: ragConfig.overlap,
+          minThreshold: 60,
+        });
 
         setCorpusLoadStage(`Vectorizing ${newChunks.length} chunks...`);
-        const embedded = await embedChunks(newChunks, ({ current, total }) => {
-          setCorpusProgress({ current, total });
-        });
+        const embedded = await embedChunks(
+          newChunks,
+          ({ current, total }) => {
+            setCorpusProgress({ current, total });
+          },
+          ragConfig.embeddingModelId
+        );
 
         vectorStore.addChunks(embedded);
         const stats = vectorStore.getStats();
@@ -251,7 +286,20 @@ export const App: React.FC = () => {
         setIsCorpusLoading(false);
       }
     },
-    [vectorStore]
+    [vectorStore, ragConfig]
+  );
+
+  // Handler: Switch WebLLM model
+  const handleSwitchLLM = useCallback(
+    async (newModelId: string) => {
+      try {
+        await webLLM.switchModel(newModelId);
+        setLlmState(webLLM.getState());
+      } catch (e) {
+        console.error('Failed to switch WebLLM model:', e);
+      }
+    },
+    [webLLM]
   );
 
   // Handler: Initialize / warmup WebLLM
@@ -314,16 +362,22 @@ export const App: React.FC = () => {
       }
 
       try {
-        // Step 1: Embed the query string into normalized 384-dim vector
-        const queryVector = await embedQuery(queryText);
+        // Step 1: Embed the query string into normalized vector using selected model
+        const queryVector = await embedQuery(queryText, ragConfig.embeddingModelId);
         setQueryVectorSample(Array.from(queryVector.slice(0, 8)));
 
-        // Step 2: Dot-product linear scan search (Top-5, threshold 0.05 for candidate discovery)
-        const rankedMatches = vectorStore.search(queryVector, 5, 0.05);
+        // Step 2: Dot-product linear scan search (Top-K, threshold from config)
+        const rankedMatches = vectorStore.search(
+          queryVector,
+          ragConfig.topK,
+          ragConfig.similarityThreshold
+        );
         setLatestSearchResults(rankedMatches);
 
         // Step 3: Assemble strict anti-hallucination prompt
-        const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.05 });
+        const assembled = assemblePrompt(queryText, rankedMatches, {
+          similarityThreshold: ragConfig.similarityThreshold,
+        });
         setAssembledPrompt(assembled);
 
         // Add assistant placeholder with streaming flag
@@ -353,7 +407,7 @@ export const App: React.FC = () => {
               )
             );
           },
-          0.05
+          ragConfig.similarityThreshold
         );
 
         // Finalize assistant message
@@ -387,7 +441,7 @@ export const App: React.FC = () => {
         setIsGenerating(false);
       }
     },
-    [isGenerating, vectorStore, webLLM]
+    [isGenerating, vectorStore, webLLM, ragConfig]
   );
 
   // Jump from citation click directly to PDF Document Viewer
@@ -429,6 +483,7 @@ export const App: React.FC = () => {
         onLoadCorpus={handleLoadCorpus}
         onUploadCustomFile={handleUploadCustomFile}
         onInitializeLLM={handleInitializeLLM}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main Workspace based on current view */}
@@ -498,7 +553,27 @@ export const App: React.FC = () => {
             />
           </div>
         )}
+
+        {/* VIEW 4: ARCHITECTURE & ABOUT */}
+        {currentView === 'about' && (
+          <AboutView
+            onOpenSettings={() => setIsSettingsOpen(true)}
+            onNavigateToTab={(tab) => setCurrentView(tab)}
+          />
+        )}
       </main>
+
+      {/* Settings & Model Swap Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        config={ragConfig}
+        onUpdateConfig={(updates) => setRagConfig((prev) => ({ ...prev, ...updates }))}
+        onReindexCorpus={() => handleLoadCorpus(true)}
+        onSwitchLLM={handleSwitchLLM}
+        isReindexing={isCorpusLoading}
+        llmState={llmState}
+      />
 
       {/* Chunk Modal for Full Inspectability with direct link to PDF Viewer */}
       <ChunkModal

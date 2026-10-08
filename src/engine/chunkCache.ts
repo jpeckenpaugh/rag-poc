@@ -21,6 +21,8 @@ export interface CacheMetadata {
   chunkCount: number;
   documentCount: number;
   model: string;
+  windowSize: number;
+  overlap: number;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -49,7 +51,9 @@ function openDB(): Promise<IDBDatabase> {
  */
 export async function saveChunksToCache(
   chunks: ChunkRecord[],
-  modelName: string = 'all-MiniLM-L6-v2'
+  modelName: string = 'all-MiniLM-L6-v2',
+  windowSize: number = 500,
+  overlap: number = 100
 ): Promise<void> {
   if (!chunks || chunks.length === 0) return;
 
@@ -58,11 +62,10 @@ export async function saveChunksToCache(
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
 
-    // Clear existing cache before saving fresh
+    // Clear existing records before saving new dataset
     store.clear();
 
     for (const chunk of chunks) {
-      if (!chunk.vector) continue;
       const serialized: SerializedChunkRecord = {
         id: chunk.id,
         source: chunk.source,
@@ -71,25 +74,22 @@ export async function saveChunksToCache(
         status: chunk.status,
         page: chunk.page,
         text: chunk.text,
-        vector: Array.from(chunk.vector),
+        vector: chunk.vector ? Array.from(chunk.vector) : [],
       };
       store.put(serialized);
     }
 
     tx.oncomplete = () => {
-      // Record cache metadata
       const uniqueDocs = new Set(chunks.map((c) => c.docId)).size;
       const meta: CacheMetadata = {
         savedAt: Date.now(),
         chunkCount: chunks.length,
         documentCount: uniqueDocs,
         model: modelName,
+        windowSize,
+        overlap,
       };
-      try {
-        localStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(meta));
-      } catch (e) {
-        console.warn('Could not store cache metadata in localStorage:', e);
-      }
+      localStorage.setItem(CACHE_METADATA_KEY, JSON.stringify(meta));
       resolve();
     };
 
@@ -98,10 +98,28 @@ export async function saveChunksToCache(
 }
 
 /**
- * Loads cached ChunkRecords from IndexedDB, reconstructing their Float32Array vectors.
+ * Restores embedded chunks from browser IndexedDB.
  */
-export async function loadChunksFromCache(): Promise<ChunkRecord[] | null> {
+export async function loadChunksFromCache(
+  expectedModel?: string,
+  expectedWindowSize?: number,
+  expectedOverlap?: number
+): Promise<ChunkRecord[] | null> {
   try {
+    const meta = getCacheMetadata();
+    if (!meta || meta.chunkCount === 0) return null;
+
+    // Verify cache matches requested configuration
+    if (expectedModel && meta.model !== expectedModel) {
+      return null;
+    }
+    if (expectedWindowSize && meta.windowSize !== expectedWindowSize) {
+      return null;
+    }
+    if (expectedOverlap && meta.overlap !== expectedOverlap) {
+      return null;
+    }
+
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE_NAME, 'readonly');
@@ -109,7 +127,7 @@ export async function loadChunksFromCache(): Promise<ChunkRecord[] | null> {
       const request = store.getAll();
 
       request.onsuccess = () => {
-        const rawList = request.result as SerializedChunkRecord[];
+        const rawList: SerializedChunkRecord[] = request.result;
         if (!rawList || rawList.length === 0) {
           resolve(null);
           return;

@@ -10,12 +10,14 @@ import {
   MessageSquare,
   FileText,
   Terminal,
+  Info,
+  Sliders,
 } from 'lucide-react';
 import type { GPUSupportResult } from '../engine/gpuCheck';
 import type { VectorStoreStats } from '../engine/vectorStore';
 import type { InitProgressReport } from '@mlc-ai/web-llm';
 
-export type AppViewMode = 'chat' | 'documents' | 'devtools';
+export type AppViewMode = 'chat' | 'documents' | 'devtools' | 'about';
 
 export interface HeaderProps {
   currentView: AppViewMode;
@@ -37,6 +39,7 @@ export interface HeaderProps {
   onLoadCorpus: (forceRegenerate?: boolean) => void;
   onUploadCustomFile: (file: File) => void;
   onInitializeLLM: () => void;
+  onOpenSettings: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -61,6 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLoadCorpus,
   onUploadCustomFile,
   onInitializeLLM,
+  onOpenSettings,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -97,10 +101,10 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* 2. Primary Navigation Tabs (View Switcher) */}
-          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner self-start md:self-center">
+          <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner self-start md:self-center overflow-x-auto max-w-full">
             <button
               onClick={() => onViewChange('chat')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 currentView === 'chat'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
@@ -112,31 +116,53 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => onViewChange('documents')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 currentView === 'documents'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>PDF Documents & Chunks</span>
+              <span>PDF Documents</span>
             </button>
 
             <button
               onClick={() => onViewChange('devtools')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 currentView === 'devtools'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
               }`}
             >
               <Terminal className="w-3.5 h-3.5" />
-              <span>DevTools Inspector</span>
+              <span>DevTools</span>
+            </button>
+
+            <button
+              onClick={() => onViewChange('about')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
+                currentView === 'about'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+            >
+              <Info className="w-3.5 h-3.5" />
+              <span>Architecture & About</span>
             </button>
           </div>
 
           {/* 3. Essential Status & Corpus Actions */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Settings & Model Swap Button */}
+            <button
+              onClick={onOpenSettings}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] font-medium transition cursor-pointer"
+              title="Configure LLM model, embedding model, and chunk parameters"
+            >
+              <Sliders className="w-3 h-3 text-indigo-400" />
+              <span>Settings</span>
+            </button>
+
             {/* WebGPU Status Pill */}
             <div
               className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium ${
@@ -259,7 +285,7 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-cyan-950/50 text-cyan-300 border-cyan-800 cursor-wait'
                     : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-600 cursor-pointer'
                 }`}
-                title="Initialize WebGPU Llama-3.2 local model weights"
+                title="Initialize WebGPU local model weights"
               >
                 {llmState.isReady ? (
                   <CheckCircle className="w-3 h-3 text-emerald-400" />
@@ -270,7 +296,7 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
                 <span>
                   {llmState.isReady
-                    ? 'Llama-3.2 Ready'
+                    ? 'LLM Ready'
                     : llmState.isInitializing
                     ? 'Downloading...'
                     : 'Warmup LLM'}
