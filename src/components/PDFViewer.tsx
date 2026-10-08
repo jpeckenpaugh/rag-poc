@@ -42,7 +42,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
 
   const [currentPage, setCurrentPage] = useState<number>(targetPage);
   const [totalPages, setTotalPages] = useState<number>(1);
-  const [scale, setScale] = useState<number>(1.25);
+  const [scale, setScale] = useState<number>(0.75);
   const [docSearchQuery, setDocSearchQuery] = useState<string>('');
   const [pdfLoading, setPdfLoading] = useState<boolean>(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -329,7 +329,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           {/* Zoom Controls */}
           <div className="flex items-center bg-slate-900 rounded-lg border border-slate-750 p-0.5 text-xs text-slate-300">
             <button
-              onClick={() => setScale((s) => Math.max(0.75, s - 0.25))}
+              onClick={() => setScale((s) => Math.max(0.5, s - 0.25))}
               className="p-1 hover:text-white transition cursor-pointer"
               title="Zoom out"
             >
