@@ -30,7 +30,7 @@ export const EvaluationQueryBar: React.FC<EvaluationQueryBarProps> = ({
   const selectedQuery = evaluationQueries.find((q) => q.id === selectedQueryId) || previewQuery;
 
   return (
-    <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-4 shadow-sm mb-6">
+    <div className="bg-slate-900/80 rounded-xl border border-slate-800 p-3 shadow-sm mb-1">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <SlidersHorizontal className="w-4 h-4 text-indigo-400" />

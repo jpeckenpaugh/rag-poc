@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Cpu,
-  Layers,
   HardDrive,
   Download,
   CheckCircle,
@@ -42,14 +41,6 @@ export interface HeaderProps {
   onOpenSettings: () => void;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
-}
-
 export const Header: React.FC<HeaderProps> = ({
   currentView,
   onViewChange,
@@ -78,26 +69,16 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="border-b border-slate-800 bg-slate-900/95 backdrop-blur sticky top-0 z-30 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 py-2.5 sm:px-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          {/* 1. Title and Branding */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-black text-lg">
+      <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+          {/* 1. Clean Title Branding without clutter text */}
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 text-white font-black text-base">
               N
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
-                  Northstar RAG
-                </h1>
-                <span className="text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded-full bg-indigo-950 text-indigo-400 border border-indigo-800/80">
-                  Client-Side
-                </span>
-              </div>
-              <p className="text-[11px] text-slate-400 hidden sm:block">
-                In-Memory ONNX MiniLM-L6-v2 · WebGPU Llama-3.2
-              </p>
-            </div>
+            <h1 className="text-base font-bold tracking-tight text-white">
+              Northstar RAG
+            </h1>
           </div>
 
           {/* 2. Primary Navigation Tabs (View Switcher: About first) */}
@@ -151,8 +132,67 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </div>
 
-          {/* 3. Essential Status & Corpus Actions */}
+          {/* 3. Essential Status & Actions */}
           <div className="flex flex-wrap items-center gap-2">
+            {/* Status Group: WebGPU and LLM side-by-side */}
+            <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800">
+              {/* WebGPU Status Pill */}
+              <div
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+                  checkingGPU
+                    ? 'text-slate-400'
+                    : gpuStatus?.supported
+                    ? 'text-emerald-400 bg-emerald-950/40'
+                    : 'text-amber-400 bg-amber-950/40'
+                }`}
+                title={
+                  gpuStatus?.supported
+                    ? `WebGPU Hardware Accelerated (${gpuStatus.adapterName || 'Active'})`
+                    : `WebGPU Unavailable: ${gpuStatus?.reason || 'CPU Vector Mode'}`
+                }
+              >
+                <Cpu className="w-3 h-3" />
+                <span>
+                  {checkingGPU
+                    ? 'GPU...'
+                    : gpuStatus?.supported
+                    ? 'WebGPU Active'
+                    : 'CPU Mode'}
+                </span>
+              </div>
+
+              {/* LLM Status / Warmup Trigger side-by-side */}
+              {gpuStatus?.supported && (
+                <button
+                  onClick={onInitializeLLM}
+                  disabled={llmState.isInitializing || llmState.isReady}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                    llmState.isReady
+                      ? 'text-emerald-400 bg-emerald-950/40'
+                      : llmState.isInitializing
+                      ? 'text-cyan-400 bg-cyan-950/50 cursor-wait'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="WebGPU Local LLM engine state"
+                >
+                  {llmState.isReady ? (
+                    <CheckCircle className="w-3 h-3 text-emerald-400" />
+                  ) : llmState.isInitializing ? (
+                    <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />
+                  ) : (
+                    <HardDrive className="w-3 h-3 text-slate-400" />
+                  )}
+                  <span>
+                    {llmState.isReady
+                      ? 'LLM Ready'
+                      : llmState.isInitializing
+                      ? 'Loading LLM...'
+                      : 'Warmup LLM'}
+                  </span>
+                </button>
+              )}
+            </div>
+
             {/* Settings & Model Swap Button */}
             <button
               onClick={onOpenSettings}
@@ -162,45 +202,6 @@ export const Header: React.FC<HeaderProps> = ({
               <Sliders className="w-3 h-3 text-indigo-400" />
               <span>Settings</span>
             </button>
-
-            {/* WebGPU Status Pill */}
-            <div
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium ${
-                checkingGPU
-                  ? 'bg-slate-800 text-slate-300 border-slate-700'
-                  : gpuStatus?.supported
-                  ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800'
-                  : 'bg-amber-950/60 text-amber-300 border-amber-800'
-              }`}
-              title={
-                gpuStatus?.supported
-                  ? `WebGPU Active: ${gpuStatus.adapterName || 'Hardware Accelerated'}`
-                  : `CPU Vector Only: ${gpuStatus?.reason || 'No WebGPU'}`
-              }
-            >
-              <Cpu className="w-3 h-3" />
-              <span className="hidden sm:inline">
-                {checkingGPU
-                  ? 'Checking GPU...'
-                  : gpuStatus?.supported
-                  ? 'WebGPU Active'
-                  : 'CPU Retrieval'}
-              </span>
-            </div>
-
-            {/* In-Memory Heap Counter */}
-            <div
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 text-[11px] font-medium text-slate-300"
-              title="Current in-memory chunks and estimated JS heap footprint"
-            >
-              <Layers className="w-3 h-3 text-indigo-400" />
-              <span>{storeStats.chunkCount} chunks</span>
-              {storeStats.estimatedMemoryBytes > 0 && (
-                <span className="text-[10px] text-slate-400 font-mono">
-                  ({formatBytes(storeStats.estimatedMemoryBytes)})
-                </span>
-              )}
-            </div>
 
             {/* Load / Cache Action Button */}
             {storeStats.chunkCount === 0 ? (
@@ -267,42 +268,11 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
+              className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 transition cursor-pointer"
               title="Add custom PDF to store"
             >
               <Upload className="w-3.5 h-3.5 text-indigo-400" />
             </button>
-
-            {/* WebLLM Warmup Trigger */}
-            {gpuStatus?.supported && (
-              <button
-                onClick={onInitializeLLM}
-                disabled={llmState.isInitializing || llmState.isReady}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium border transition ${
-                  llmState.isReady
-                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800'
-                    : llmState.isInitializing
-                    ? 'bg-cyan-950/50 text-cyan-300 border-cyan-800 cursor-wait'
-                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-600 cursor-pointer'
-                }`}
-                title="Initialize WebGPU local model weights"
-              >
-                {llmState.isReady ? (
-                  <CheckCircle className="w-3 h-3 text-emerald-400" />
-                ) : llmState.isInitializing ? (
-                  <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />
-                ) : (
-                  <HardDrive className="w-3 h-3 text-slate-400" />
-                )}
-                <span>
-                  {llmState.isReady
-                    ? 'LLM Ready'
-                    : llmState.isInitializing
-                    ? 'Downloading...'
-                    : 'Warmup LLM'}
-                </span>
-              </button>
-            )}
           </div>
         </div>
 

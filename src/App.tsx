@@ -488,17 +488,19 @@ export const App: React.FC = () => {
 
       {/* Main Workspace based on current view */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col">
-        {/* VIEW 1: ASSISTANT & CHAT */}
+        {/* VIEW 1: ASSISTANT & CHAT (Pinned to Viewport) */}
         {currentView === 'chat' && (
-          <div className="flex-1 flex flex-col space-y-4">
+          <div className="flex-1 flex flex-col h-[calc(100vh-80px)] min-h-[580px] overflow-hidden gap-3 pb-2">
             {/* Quick Evaluation Query Bar */}
-            <EvaluationQueryBar
-              selectedQueryId={selectedEvaluationQueryId}
-              onSelectQuery={handleSelectEvaluationQuery}
-            />
+            <div className="shrink-0">
+              <EvaluationQueryBar
+                selectedQueryId={selectedEvaluationQueryId}
+                onSelectQuery={handleSelectEvaluationQuery}
+              />
+            </div>
 
-            {/* Chat Interface Container */}
-            <div className="flex-1 min-h-[620px] flex flex-col">
+            {/* Chat Interface Container pinned to remaining height */}
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ChatInterface
                 messages={messages}
                 isGenerating={isGenerating}
