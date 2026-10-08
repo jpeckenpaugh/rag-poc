@@ -69,9 +69,19 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   // Helper to render message text with clickable citation badges
   const renderMessageContent = (msg: ChatMessage) => {
     const text = msg.text;
+    const textTrimmed = text.trim();
+    const hasRefusalPhrase =
+      textTrimmed.includes(STRICT_REFUSAL_MESSAGE) ||
+      textTrimmed.toLowerCase().includes('cannot find this information in the provided documentation');
+    
+    // An abstention is true only if the response is primarily refusing, not if it continues to deliver a full answer
     const isAbstained =
-      text.includes(STRICT_REFUSAL_MESSAGE) ||
-      text.toLowerCase().includes('cannot find this information in the provided documentation');
+      hasRefusalPhrase &&
+      (textTrimmed.length < 250 ||
+        (!textTrimmed.includes('According to') &&
+          !textTrimmed.includes('NU-OPS-') &&
+          !textTrimmed.includes('procedure') &&
+          !textTrimmed.includes('require')));
 
     return (
       <div className="space-y-3">
@@ -80,7 +90,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-950/40 border border-amber-800 text-amber-300 text-xs font-medium">
             <AlertOctagon className="w-4 h-4 text-amber-400 shrink-0" />
             <span>
-              <strong>Guardrail Triggered:</strong> Assistant abstained because the facts are not present in the indexed Northstar documentation.
+              <strong>Guardrail Triggered:</strong> Assistant abstained because the requested facts are not present in the indexed Northstar documentation.
             </span>
           </div>
         )}

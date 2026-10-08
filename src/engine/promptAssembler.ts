@@ -26,39 +26,46 @@ export const STRICT_REFUSAL_MESSAGE =
 
 /**
  * Constructs strict anti-hallucination prompts matching concept.md specifications:
- * - Clear context snippets with [Source: filename, Page: X, Document: docId]
+ * - Clear context snippets with document metadata
  * - Strict refusal when context is missing or irrelevant
- * - Negative query defense
+ * - Formatted cleanly for small 1B instruction models to prevent header regurgitation
  */
 export function assemblePrompt(
   query: string,
   retrievedChunks: RetrievedChunkMatch[],
   options: PromptAssemblyOptions = {}
 ): AssembledPrompt {
-  const threshold = options.similarityThreshold ?? 0.15;
+  const threshold = options.similarityThreshold ?? 0.05;
   const filteredChunks = retrievedChunks.filter((item) => item.score >= threshold);
 
   const hasRelevantContext = filteredChunks.length > 0;
 
   const systemPrompt = [
-    'You are a helpful and accurate assistant for Northstar Urgent Care Cooperative.',
-    'Carefully read the provided context snippets below and use them to directly answer the user question.',
-    'Always cite your sources using [Source: <filename>, Page: <page>] format.',
-    `Only if the provided context snippets do NOT contain the answer, reply: "${STRICT_REFUSAL_MESSAGE}"`,
-    'Be concise, direct, and factual.'
+    'You are the Northstar Urgent Care Cooperative operational assistant.',
+    'Answer the user question factually and directly using ONLY the operational documentation excerpts provided below.',
+    'Do not assume, invent, or extrapolate information outside the excerpts.',
+    'If the excerpts do not contain the specific facts needed to answer the question, state: "I cannot find this information in the provided documentation."',
+    'Keep your answer clear, direct, and reference the source document (e.g. NU-OPS-XXX) when stating facts.',
+    'Do not repeat the context excerpts or headers in your answer.'
   ].join(' ');
 
   let contextSnippetBlock = '';
   if (hasRelevantContext) {
     const snippets = filteredChunks.map(({ chunk }, index) => {
-      return `[Context Snippet ${index + 1} - Source: ${chunk.source}, Page: ${chunk.page}]\n${chunk.text.trim()}`;
+      // Strip redundant internal prefix from chunk text if already present
+      let cleanText = chunk.text.trim();
+      const prefixMatch = cleanText.match(/^\[Document:[^\]]+\]\s*/);
+      if (prefixMatch) {
+        cleanText = cleanText.slice(prefixMatch[0].length).trim();
+      }
+      return `--- Excerpt ${index + 1} (${chunk.docId} - ${chunk.title}, Page ${chunk.page}) ---\n${cleanText}`;
     });
-    contextSnippetBlock = `Context Information:\n${snippets.join('\n\n')}`;
+    contextSnippetBlock = `OPERATIONAL EXCERPTS:\n${snippets.join('\n\n')}`;
   } else {
-    contextSnippetBlock = 'Context Information:\n(No relevant documents found)';
+    contextSnippetBlock = 'OPERATIONAL EXCERPTS:\n(No relevant documents found in index)';
   }
 
-  const userPrompt = `${contextSnippetBlock}\n\nQuestion: ${query.trim()}\n\nBased on the context above, provide a direct answer with citations:`;
+  const userPrompt = `${contextSnippetBlock}\n\nQUESTION: ${query.trim()}\n\nProvide a direct, factual answer based strictly on the excerpts above:`;
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
