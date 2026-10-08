@@ -1,14 +1,17 @@
-import { pipeline, env, FeatureExtractionPipeline, PipelineProgressCallback } from '@huggingface/transformers';
+import { pipeline, env, FeatureExtractionPipeline } from '@huggingface/transformers';
 import { ChunkRecord } from '../types/corpus';
 
 // Configure environment defaults for browser execution
-if (env && env.backends && env.backends.onnx) {
+if (env && env.backends && (env.backends as any).onnx) {
   env.allowLocalModels = false;
   env.useBrowserCache = true;
-  env.backends.onnx.wasm.numThreads = 1;
+  if ((env.backends as any).onnx?.wasm) {
+    (env.backends as any).onnx.wasm.numThreads = 1;
+  }
 }
 
 export type EmbeddingProgressCallback = (progress: { current: number; total: number }) => void;
+export type TransformersProgressCallback = (progress: any) => void;
 
 let pipelineInstance: FeatureExtractionPipeline | null = null;
 let pipelineLoadingPromise: Promise<FeatureExtractionPipeline> | null = null;
@@ -17,7 +20,7 @@ let pipelineLoadingPromise: Promise<FeatureExtractionPipeline> | null = null;
  * Lazily initializes and returns the Xenova/all-MiniLM-L6-v2 pipeline singleton.
  */
 export async function getEmbeddingPipeline(
-  progressCallback?: PipelineProgressCallback
+  progressCallback?: TransformersProgressCallback
 ): Promise<FeatureExtractionPipeline> {
   if (pipelineInstance) {
     return pipelineInstance;
@@ -29,7 +32,7 @@ export async function getEmbeddingPipeline(
 
   pipelineLoadingPromise = (async () => {
     try {
-      const extractor = (await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      const extractor = (await (pipeline as any)('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
         quantized: true,
         progress_callback: progressCallback,
       })) as unknown as FeatureExtractionPipeline;
@@ -70,9 +73,9 @@ export function normalizeVector(vector: Float32Array): Float32Array {
 export async function embedQuery(query: string): Promise<Float32Array> {
   const extractor = await getEmbeddingPipeline();
   // Using mean pooling and requesting normalized output
-  const output = await extractor(query, { pooling: 'mean', normalize: true });
-  const data = output.data instanceof Float32Array ? output.data : new Float32Array(output.data);
-  return normalizeVector(new Float32Array(data));
+  const output: any = await (extractor as any)(query, { pooling: 'mean', normalize: true });
+  const rawArray = Array.from(output.data as ArrayLike<number>);
+  return normalizeVector(new Float32Array(rawArray));
 }
 
 /**
@@ -88,9 +91,9 @@ export async function embedTexts(
 
   for (let i = 0; i < total; i++) {
     const text = texts[i];
-    const output = await extractor(text, { pooling: 'mean', normalize: true });
-    const rawData = output.data instanceof Float32Array ? output.data : new Float32Array(output.data);
-    const normalized = normalizeVector(new Float32Array(rawData));
+    const output: any = await (extractor as any)(text, { pooling: 'mean', normalize: true });
+    const rawArray = Array.from(output.data as ArrayLike<number>);
+    const normalized = normalizeVector(new Float32Array(rawArray));
     results.push(normalized);
 
     if (onProgress) {
