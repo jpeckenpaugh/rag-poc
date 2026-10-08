@@ -148,7 +148,7 @@ export class WebLLMClient {
     const asyncChunks = await this.engine.chatCompletion({
       stream: true,
       messages,
-      temperature: 0.1, // Low temperature for factual grounding
+      temperature: 0.2, // Balanced temperature for factual reasoning
       max_tokens: 512,
     });
 

@@ -41,25 +41,24 @@ export function assemblePrompt(
   const hasRelevantContext = filteredChunks.length > 0;
 
   const systemPrompt = [
-    'You are an internal corporate assistant for Northstar Urgent Care Cooperative.',
-    'Answer the user question strictly using only the context snippets provided below.',
-    `If the information is not contained in the context, explicitly respond: "${STRICT_REFUSAL_MESSAGE}"`,
-    'Do not make assumptions, extrapolate, or invent policies or clinical details not stated.',
-    'When providing answers, cite the relevant documents using [Source: <filename>, Page: <page>] notation matching the provided snippets.'
+    'You are a helpful and accurate assistant for Northstar Urgent Care Cooperative.',
+    'Carefully read the provided context snippets below and use them to directly answer the user question.',
+    'Always cite your sources using [Source: <filename>, Page: <page>] format.',
+    `Only if the provided context snippets do NOT contain the answer, reply: "${STRICT_REFUSAL_MESSAGE}"`,
+    'Be concise, direct, and factual.'
   ].join(' ');
 
   let contextSnippetBlock = '';
   if (hasRelevantContext) {
     const snippets = filteredChunks.map(({ chunk }, index) => {
-      const sourceHeader = `[Source: ${chunk.source}, Page: ${chunk.page}, Document: ${chunk.docId}]`;
-      return `--- Snippet ${index + 1} ${sourceHeader} ---\n${chunk.text.trim()}`;
+      return `[Context Snippet ${index + 1} - Source: ${chunk.source}, Page: ${chunk.page}]\n${chunk.text.trim()}`;
     });
-    contextSnippetBlock = `--- CONTEXT SNIPPETS ---\n${snippets.join('\n\n')}\n------------------------`;
+    contextSnippetBlock = `Context Information:\n${snippets.join('\n\n')}`;
   } else {
-    contextSnippetBlock = '--- CONTEXT SNIPPETS ---\n(No relevant documents found for this query)\n------------------------';
+    contextSnippetBlock = 'Context Information:\n(No relevant documents found)';
   }
 
-  const userPrompt = `${contextSnippetBlock}\n\nQuestion: ${query.trim()}\nAnswer:`;
+  const userPrompt = `${contextSnippetBlock}\n\nQuestion: ${query.trim()}\n\nBased on the context above, provide a direct answer with citations:`;
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
