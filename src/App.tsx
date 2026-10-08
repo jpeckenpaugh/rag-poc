@@ -467,7 +467,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+    <div className="h-[100dvh] max-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white overflow-hidden">
       {/* 1. Global Header with View Switcher, Stats, and Actions */}
       <Header
         currentView={currentView}
@@ -487,11 +487,11 @@ export const App: React.FC = () => {
       />
 
       {/* Main Workspace based on current view */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 flex flex-col">
-        {/* VIEW 1: ASSISTANT & CHAT (Pinned to Viewport) */}
+      <main className="flex-1 min-h-0 max-w-7xl w-full mx-auto p-2 sm:p-4 flex flex-col overflow-hidden">
+        {/* VIEW 1: ASSISTANT & CHAT (Strictly Pinned to Viewport) */}
         {currentView === 'chat' && (
-          <div className="flex-1 flex flex-col h-[calc(100vh-80px)] min-h-[580px] overflow-hidden gap-3 pb-2">
-            {/* Quick Evaluation Query Bar */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
+            {/* Quick Evaluation Query Bar (Collapsible) */}
             <div className="shrink-0">
               <EvaluationQueryBar
                 selectedQueryId={selectedEvaluationQueryId}
@@ -499,7 +499,7 @@ export const App: React.FC = () => {
               />
             </div>
 
-            {/* Chat Interface Container pinned to remaining height */}
+            {/* Chat Interface Container taking remaining height with pinned input */}
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ChatInterface
                 messages={messages}
@@ -517,7 +517,7 @@ export const App: React.FC = () => {
 
         {/* VIEW 2: PDF DOCUMENTS & VISUAL CHUNKS VIEWER (Viewport Constrained) */}
         {currentView === 'documents' && (
-          <div className="flex-1 flex flex-col h-[calc(100vh-80px)] min-h-[580px] overflow-hidden pb-2">
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
             <PDFViewer
               documents={manifest}
               allChunks={allChunks}
@@ -538,7 +538,7 @@ export const App: React.FC = () => {
 
         {/* VIEW 3: DEVTOOLS & INSPECTOR */}
         {currentView === 'devtools' && (
-          <div className="flex-1 h-[720px] rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex flex-col">
+          <div className="flex-1 min-h-0 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl flex flex-col">
             <DevToolsDrawer
               isOpen={true}
               activeTab={devToolsTab}
@@ -556,12 +556,14 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* VIEW 4: ARCHITECTURE & ABOUT */}
+        {/* VIEW 4: ARCHITECTURE & ABOUT (Scrollable content) */}
         {currentView === 'about' && (
-          <AboutView
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onNavigateToTab={(tab) => setCurrentView(tab)}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            <AboutView
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onNavigateToTab={(tab) => setCurrentView(tab)}
+            />
+          </div>
         )}
       </main>
 
