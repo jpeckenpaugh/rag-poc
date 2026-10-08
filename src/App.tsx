@@ -515,9 +515,9 @@ export const App: React.FC = () => {
           </div>
         )}
 
-        {/* VIEW 2: PDF DOCUMENTS & VISUAL CHUNKS VIEWER */}
+        {/* VIEW 2: PDF DOCUMENTS & VISUAL CHUNKS VIEWER (Viewport Constrained) */}
         {currentView === 'documents' && (
-          <div className="flex-1 flex flex-col">
+          <div className="flex-1 flex flex-col h-[calc(100vh-80px)] min-h-[580px] overflow-hidden pb-2">
             <PDFViewer
               documents={manifest}
               allChunks={allChunks}

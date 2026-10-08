@@ -148,9 +148,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
-      {/* Thread Container */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+    <div className="flex flex-col h-full min-h-0 bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden shadow-xl">
+      {/* Thread Container (Scrollable) */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-5">
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400 max-w-lg mx-auto">
             <div className="w-12 h-12 rounded-2xl bg-indigo-950/80 border border-indigo-800/80 flex items-center justify-center mb-4 text-indigo-400 shadow-lg shadow-indigo-600/10">
@@ -242,8 +242,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Form Bar */}
-      <div className="p-3 sm:p-4 bg-slate-950/80 border-t border-slate-800">
+      {/* Pinned Bottom Input Form Bar */}
+      <div className="p-3 sm:p-4 bg-slate-950/95 border-t border-slate-800 shrink-0 sticky bottom-0 z-20">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
             type="text"
@@ -251,12 +251,12 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
             onChange={(e) => setInputText(e.target.value)}
             placeholder="Ask a question about Northstar procedures, policies, or records..."
             disabled={isGenerating}
-            className="flex-1 bg-slate-900 border border-slate-750 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition"
+            className="flex-1 bg-slate-900 border border-slate-750 focus:border-indigo-500 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none transition shadow-inner"
           />
           <button
             type="submit"
             disabled={!inputText.trim() || isGenerating}
-            className={`px-5 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 transition shadow-md ${
+            className={`px-5 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 transition shadow-md cursor-pointer ${
               !inputText.trim() || isGenerating
                 ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
                 : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
@@ -271,7 +271,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
           <span>Grounding: all answers are verifiable against local PDF citations</span>
           <button
             onClick={() => onOpenDevTools('prompt')}
-            className="text-indigo-400 hover:text-indigo-300 underline font-medium"
+            className="text-indigo-400 hover:text-indigo-300 underline font-medium cursor-pointer"
           >
             Inspect Assembled System Prompt
           </button>
