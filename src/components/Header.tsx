@@ -19,6 +19,7 @@ export interface HeaderProps {
   isCorpusLoading: boolean;
   corpusLoadStage: string;
   corpusProgress: { current: number; total: number };
+  hasCachedCorpus: boolean;
   llmState: {
     isInitializing: boolean;
     isReady: boolean;
@@ -26,7 +27,7 @@ export interface HeaderProps {
     progressReport?: InitProgressReport;
     selectedModel: string;
   };
-  onLoadCorpus: () => void;
+  onLoadCorpus: (forceRegenerate?: boolean) => void;
   onUploadCustomFile: (file: File) => void;
   onInitializeLLM: () => void;
   onOpenDevTools: (tab?: string) => void;
@@ -47,6 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
   isCorpusLoading,
   corpusLoadStage,
   corpusProgress,
+  hasCachedCorpus,
   llmState,
   onLoadCorpus,
   onUploadCustomFile,
@@ -132,29 +134,56 @@ export const Header: React.FC<HeaderProps> = ({
               </span>
             </button>
 
-            {/* Load Northstar Corpus Button */}
-            <button
-              onClick={onLoadCorpus}
-              disabled={isCorpusLoading}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow transition ${
-                isCorpusLoading
-                  ? 'bg-indigo-900/50 text-indigo-300 border border-indigo-700 cursor-wait'
-                  : storeStats.chunkCount > 0
-                  ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
-              }`}
-            >
-              <Download
-                className={`w-3.5 h-3.5 ${isCorpusLoading ? 'animate-bounce text-indigo-400' : ''}`}
-              />
-              <span>
-                {isCorpusLoading
-                  ? 'Indexing Corpus...'
-                  : storeStats.chunkCount > 0
-                  ? 'Reload 21 PDFs'
-                  : 'Load Northstar Corpus'}
-              </span>
-            </button>
+            {/* Load Northstar Corpus / Cache Controls */}
+            {storeStats.chunkCount === 0 ? (
+              hasCachedCorpus ? (
+                <div className="flex items-center rounded-lg border border-indigo-700 bg-indigo-950/70 p-0.5 shadow">
+                  <button
+                    onClick={() => onLoadCorpus(false)}
+                    disabled={isCorpusLoading}
+                    className="flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition shadow cursor-pointer"
+                    title="Instantly restore indexed embeddings from browser IndexedDB cache"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Load from Cache</span>
+                  </button>
+                  <button
+                    onClick={() => onLoadCorpus(true)}
+                    disabled={isCorpusLoading}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-indigo-300 hover:text-white hover:bg-indigo-800/60 transition cursor-pointer"
+                    title="Re-extract and re-embed all 21 PDFs from scratch"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    <span>Regenerate</span>
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onLoadCorpus(false)}
+                  disabled={isCorpusLoading}
+                  className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow transition cursor-pointer ${
+                    isCorpusLoading
+                      ? 'bg-indigo-900/50 text-indigo-300 border border-indigo-700 cursor-wait'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-600/30'
+                  }`}
+                >
+                  <Download
+                    className={`w-3.5 h-3.5 ${isCorpusLoading ? 'animate-bounce text-indigo-400' : ''}`}
+                  />
+                  <span>{isCorpusLoading ? 'Indexing Corpus...' : 'Load Northstar Corpus'}</span>
+                </button>
+              )
+            ) : (
+              <button
+                onClick={() => onLoadCorpus(true)}
+                disabled={isCorpusLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium transition cursor-pointer"
+                title="Re-extract and re-embed all 21 PDFs from scratch"
+              >
+                <RefreshCw className={`w-3 h-3 text-slate-400 ${isCorpusLoading ? 'animate-spin text-indigo-400' : ''}`} />
+                <span>{isCorpusLoading ? 'Regenerating...' : 'Regenerate Corpus'}</span>
+              </button>
+            )}
 
             {/* Custom PDF Upload */}
             <input

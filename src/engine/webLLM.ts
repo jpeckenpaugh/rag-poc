@@ -100,12 +100,24 @@ export class WebLLMClient {
         this.engine = engine;
         this.state.isInitializing = false;
         this.state.isReady = true;
+        this.state.error = undefined;
+        this.notifyProgress({
+          progress: 1.0,
+          timeElapsed: 0,
+          text: 'Model engine ready in WebGPU',
+        });
         return engine;
       } catch (error) {
         this.state.isInitializing = false;
+        this.state.isReady = false;
         const msg = error instanceof Error ? error.message : String(error);
         this.state.error = msg;
         this.initPromise = null;
+        this.notifyProgress({
+          progress: 0,
+          timeElapsed: 0,
+          text: `Engine error: ${msg}`,
+        });
         throw error;
       }
     })();
@@ -162,9 +174,10 @@ export class WebLLMClient {
   public async answerQuery(
     query: string,
     retrievedChunks: RetrievedChunkMatch[],
-    onToken?: (token: string) => void
+    onToken?: (token: string) => void,
+    similarityThreshold = 0.10
   ): Promise<{ text: string; mode: 'llm' | 'retrieval-fallback'; citations: RetrievedChunkMatch[] }> {
-    const assembled = assemblePrompt(query, retrievedChunks);
+    const assembled = assemblePrompt(query, retrievedChunks, { similarityThreshold });
 
     // If context is completely missing, return direct anti-hallucination refusal without calling LLM
     if (!assembled.hasRelevantContext) {

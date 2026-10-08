@@ -13,6 +13,11 @@ import { embedChunks, embedQuery } from './engine/embeddings';
 import { InMemoryVectorStore, VectorStoreStats } from './engine/vectorStore';
 import { getWebLLMClient, WebLLMClientState } from './engine/webLLM';
 import { assemblePrompt, AssembledPrompt, RetrievedChunkMatch } from './engine/promptAssembler';
+import {
+  loadChunksFromCache,
+  saveChunksToCache,
+  getCacheMetadata,
+} from './engine/chunkCache';
 import { EvaluationQuery } from './data/evaluationQueries';
 import { CorpusDocument, ChunkRecord } from './types/corpus';
 
@@ -34,6 +39,7 @@ export const App: React.FC = () => {
   const [manifest, setManifest] = useState<CorpusDocument[]>([]);
   const [isCorpusLoading, setIsCorpusLoading] = useState<boolean>(false);
   const [corpusLoadStage, setCorpusLoadStage] = useState<string>('');
+  const [hasCachedCorpus, setHasCachedCorpus] = useState<boolean>(false);
   const [corpusProgress, setCorpusProgress] = useState<{ current: number; total: number }>({
     current: 0,
     total: 0,
@@ -85,20 +91,50 @@ export const App: React.FC = () => {
     return unsubscribe;
   }, [webLLM]);
 
-  // Load manifest on mount
+  // Load manifest on mount & check cache
   useEffect(() => {
     fetch(`${import.meta.env.BASE_URL}corpus/manifest.json`)
       .then((res) => res.json())
       .then((data: CorpusDocument[]) => setManifest(data))
       .catch((err) => console.error('Failed to load corpus manifest:', err));
-  }, []);
 
-  // Handler: Ingest Northstar 21 PDF Corpus
-  const handleLoadCorpus = useCallback(async () => {
+    const meta = getCacheMetadata();
+    if (meta && meta.chunkCount > 0) {
+      setHasCachedCorpus(true);
+      // Auto-restore cached chunks immediately on mount
+      loadChunksFromCache().then((cachedChunks) => {
+        if (cachedChunks && cachedChunks.length > 0) {
+          vectorStore.setChunks(cachedChunks);
+          setStoreStats(vectorStore.getStats());
+          setAllChunks(vectorStore.getChunks());
+          setCorpusLoadStage(`Restored ${cachedChunks.length} chunks from browser cache`);
+        }
+      }).catch((e) => console.warn('Could not auto-restore cached chunks:', e));
+    }
+  }, [vectorStore]);
+
+  // Handler: Ingest Northstar 21 PDF Corpus (Supports cache restore vs force regenerate)
+  const handleLoadCorpus = useCallback(async (forceRegenerate = false) => {
     if (isCorpusLoading) return;
     setIsCorpusLoading(true);
 
     try {
+      // If not forcing regenerate, try loading from browser cache first
+      if (!forceRegenerate) {
+        setCorpusLoadStage('Checking local IndexedDB cache for embeddings...');
+        const cached = await loadChunksFromCache();
+        if (cached && cached.length > 0) {
+          vectorStore.setChunks(cached);
+          const stats = vectorStore.getStats();
+          setStoreStats(stats);
+          setAllChunks(vectorStore.getChunks());
+          setHasCachedCorpus(true);
+          setCorpusLoadStage(`Restored ${cached.length} chunks from browser cache in <50ms.`);
+          setTimeout(() => setIsCorpusLoading(false), 500);
+          return;
+        }
+      }
+
       // 1. Fetch manifest if empty
       let docsToLoad = manifest;
       if (!docsToLoad || docsToLoad.length === 0) {
@@ -146,7 +182,12 @@ export const App: React.FC = () => {
       setStoreStats(stats);
       setAllChunks(vectorStore.getChunks());
 
-      setCorpusLoadStage(`Ready! Ingested ${embeddedChunks.length} chunks across ${totalDocs} documents.`);
+      // 6. Cache into browser IndexedDB for fast reload
+      setCorpusLoadStage('Saving embeddings to browser cache (IndexedDB)...');
+      await saveChunksToCache(embeddedChunks);
+      setHasCachedCorpus(true);
+
+      setCorpusLoadStage(`Ready! Ingested & cached ${embeddedChunks.length} chunks across ${totalDocs} documents.`);
       setTimeout(() => setIsCorpusLoading(false), 800);
     } catch (err) {
       console.error('Error during corpus ingestion:', err);
@@ -197,8 +238,14 @@ export const App: React.FC = () => {
   // Handler: Initialize / warmup WebLLM
   const handleInitializeLLM = useCallback(async () => {
     try {
-      setLlmState((prev) => ({ ...prev, isInitializing: true }));
-      await webLLM.initialize();
+      setLlmState((prev) => ({ ...prev, isInitializing: true, error: undefined }));
+      await webLLM.initialize((report) => {
+        setLlmState((prev) => ({
+          ...prev,
+          isInitializing: true,
+          progressReport: report,
+        }));
+      });
       setLlmState(webLLM.getState());
     } catch (err) {
       console.error('Failed to initialize WebLLM:', err);
@@ -250,12 +297,12 @@ export const App: React.FC = () => {
         const queryVector = await embedQuery(queryText);
         setQueryVectorSample(Array.from(queryVector.slice(0, 8)));
 
-        // Step 2: Dot-product linear scan search (Top-5, threshold 0.15 for ranking inspection)
-        const rankedMatches = vectorStore.search(queryVector, 5, 0.15);
+        // Step 2: Dot-product linear scan search (Top-5, threshold 0.12 for candidate discovery)
+        const rankedMatches = vectorStore.search(queryVector, 5, 0.12);
         setLatestSearchResults(rankedMatches);
 
         // Step 3: Assemble strict anti-hallucination prompt
-        const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.20 });
+        const assembled = assemblePrompt(queryText, rankedMatches, { similarityThreshold: 0.12 });
         setAssembledPrompt(assembled);
 
         // Add assistant placeholder with streaming flag
@@ -274,14 +321,19 @@ export const App: React.FC = () => {
         let currentAssistantText = '';
 
         // Step 4: Stream answer via WebLLM or semantic fallback
-        const result = await webLLM.answerQuery(queryText, rankedMatches, (token: string) => {
-          currentAssistantText += token;
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMsgId ? { ...msg, text: currentAssistantText } : msg
-            )
-          );
-        });
+        const result = await webLLM.answerQuery(
+          queryText,
+          rankedMatches,
+          (token: string) => {
+            currentAssistantText += token;
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId ? { ...msg, text: currentAssistantText } : msg
+              )
+            );
+          },
+          0.12
+        );
 
         // Finalize assistant message
         setMessages((prev) =>
@@ -338,6 +390,7 @@ export const App: React.FC = () => {
         isCorpusLoading={isCorpusLoading}
         corpusLoadStage={corpusLoadStage}
         corpusProgress={corpusProgress}
+        hasCachedCorpus={hasCachedCorpus}
         llmState={llmState}
         onLoadCorpus={handleLoadCorpus}
         onUploadCustomFile={handleUploadCustomFile}
