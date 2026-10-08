@@ -42,11 +42,10 @@ export function assemblePrompt(
 
   const systemPrompt = [
     'You are the Northstar Urgent Care Cooperative operational assistant.',
-    'Answer the user question factually and directly using ONLY the operational documentation excerpts provided below.',
-    'Do not assume, invent, or extrapolate information outside the excerpts.',
-    'If the excerpts do not contain the specific facts needed to answer the question, state: "I cannot find this information in the provided documentation."',
-    'Keep your answer clear, direct, and reference the source document (e.g. NU-OPS-XXX) when stating facts.',
-    'Do not repeat the context excerpts or headers in your answer.'
+    'Answer the user question factually, concisely, and directly using ONLY the operational excerpts provided below.',
+    'Summarize the relevant facts and explicitly cite the source document ID (e.g. NU-OPS-002) and page number.',
+    'Do not invent, speculate, or assume details not written in the excerpts.',
+    'If the excerpts do not contain the answer or the topic is not covered in the excerpts, clearly state that the provided Northstar operational documentation does not contain this information.'
   ].join(' ');
 
   let contextSnippetBlock = '';
@@ -58,14 +57,14 @@ export function assemblePrompt(
       if (prefixMatch) {
         cleanText = cleanText.slice(prefixMatch[0].length).trim();
       }
-      return `--- Excerpt ${index + 1} (${chunk.docId} - ${chunk.title}, Page ${chunk.page}) ---\n${cleanText}`;
+      return `[Excerpt ${index + 1} | ${chunk.docId} - ${chunk.title}, Page ${chunk.page}]\n${cleanText}`;
     });
-    contextSnippetBlock = `OPERATIONAL EXCERPTS:\n${snippets.join('\n\n')}`;
+    contextSnippetBlock = `EXCERPTS:\n${snippets.join('\n\n')}`;
   } else {
-    contextSnippetBlock = 'OPERATIONAL EXCERPTS:\n(No relevant documents found in index)';
+    contextSnippetBlock = 'EXCERPTS:\n(No relevant excerpts found)';
   }
 
-  const userPrompt = `${contextSnippetBlock}\n\nQUESTION: ${query.trim()}\n\nProvide a direct, factual answer based strictly on the excerpts above:`;
+  const userPrompt = `${contextSnippetBlock}\n\nQUESTION: ${query.trim()}\n\nBased on the excerpts above, provide a direct and factual answer:`;
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 

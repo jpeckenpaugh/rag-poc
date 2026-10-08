@@ -72,16 +72,17 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({
     const textTrimmed = text.trim();
     const hasRefusalPhrase =
       textTrimmed.includes(STRICT_REFUSAL_MESSAGE) ||
-      textTrimmed.toLowerCase().includes('cannot find this information in the provided documentation');
+      textTrimmed.toLowerCase().includes('cannot find this information in the provided documentation') ||
+      textTrimmed.toLowerCase().includes('does not contain this information') ||
+      textTrimmed.toLowerCase().includes('do not contain this information') ||
+      textTrimmed.toLowerCase().includes('does not contain any information');
     
-    // An abstention is true only if the response is primarily refusing, not if it continues to deliver a full answer
+    // An abstention is true ONLY if the response is essentially a refusal (short or lacking substantive operational answer)
     const isAbstained =
       hasRefusalPhrase &&
-      (textTrimmed.length < 250 ||
-        (!textTrimmed.includes('According to') &&
-          !textTrimmed.includes('NU-OPS-') &&
-          !textTrimmed.includes('procedure') &&
-          !textTrimmed.includes('require')));
+      textTrimmed.length < 180 &&
+      !textTrimmed.includes('NU-OPS-') &&
+      !textTrimmed.includes('According to');
 
     return (
       <div className="space-y-3">
